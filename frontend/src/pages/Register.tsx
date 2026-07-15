@@ -21,7 +21,7 @@ export default function Register() {
     try {
       const res = await api.post('/auth/register', { firstName, lastName, email, password });
       if (res.data.success) {
-        login(res.data.data.user, res.data.data.token);
+        login(res.data.data.user, res.data.data.accessToken);
         navigate('/dashboard');
       }
     } catch (err: any) {
