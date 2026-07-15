@@ -9,7 +9,7 @@ export class MetaService {
    */
   static getOAuthUrl(state: string): string {
     const redirectUri = encodeURIComponent(env.FACEBOOK_REDIRECT_URI);
-    const scope = encodeURIComponent('instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement');
+    const scope = encodeURIComponent('instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement,pages_manage_metadata,business_management');
     return `https://www.facebook.com/v19.0/dialog/oauth?client_id=${env.FACEBOOK_APP_ID}&redirect_uri=${redirectUri}&state=${state}&scope=${scope}`;
   }
 
