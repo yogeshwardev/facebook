@@ -1,13 +1,32 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import api from '../utils/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Implementation pending API integration
+    setError('');
+    setLoading(true);
+    
+    try {
+      const res = await api.post('/auth/login', { email, password });
+      if (res.data.success) {
+        login(res.data.data.user, res.data.data.token);
+        navigate('/dashboard');
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -19,6 +38,7 @@ export default function Login() {
         </div>
         
         <form onSubmit={handleSubmit}>
+          {error && <div style={{ color: 'var(--danger)', marginBottom: '1rem', fontSize: '0.875rem' }}>{error}</div>}
           <div className="input-group">
             <label className="input-label" htmlFor="email">Email</label>
             <input 
@@ -45,8 +65,8 @@ export default function Login() {
             />
           </div>
           
-          <button type="submit" className="btn btn-primary">
-            Sign In
+          <button type="submit" className="btn btn-primary" disabled={loading}>
+            {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
         

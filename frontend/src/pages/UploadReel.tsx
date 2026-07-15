@@ -1,58 +1,124 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import { useNavigate } from 'react-router-dom';
+import api from '../utils/api';
+
+interface Media {
+  id: string;
+  fileName: string;
+}
+
+interface Account {
+  id: string;
+  username: string;
+}
 
 export default function UploadReel() {
-  const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [mediaList, setMediaList] = useState<Media[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [mediaId, setMediaId] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const [caption, setCaption] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      setFile(e.target.files[0]);
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      const [mediaRes, accRes] = await Promise.all([
+        api.get('/media'),
+        api.get('/accounts')
+      ]);
+      if (mediaRes.data.success) setMediaList(mediaRes.data.data.media);
+      if (accRes.data.success) setAccounts(accRes.data.data.accounts);
+    } catch (err) {
+      console.error(err);
     }
   };
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!mediaId || !accountId || !scheduledTime) return;
 
-    setUploading(true);
+    setLoading(true);
     try {
-      alert('File upload started...');
+      const res = await api.post('/posts/schedule', {
+        mediaId,
+        caption,
+        scheduledTime: new Date(scheduledTime).toISOString(),
+        accountIds: [accountId]
+      });
       
-      setTimeout(() => {
-        setUploading(false);
-        navigate('/media');
-      }, 1500);
+      if (res.data.success) {
+        navigate('/calendar');
+      }
     } catch (err) {
       console.error(err);
-      setUploading(false);
+      alert('Failed to schedule post');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <Layout>
       <div className="page-header">
-        <h1 className="page-title">Upload Reel</h1>
+        <h1 className="page-title">Schedule Reel</h1>
       </div>
 
       <div className="card" style={{ maxWidth: '600px' }}>
         <form onSubmit={handleUpload}>
+          
           <div className="input-group">
-            <label className="input-label" htmlFor="videoFile">Select Video (MP4, MOV)</label>
-            <input 
-              id="videoFile"
-              type="file"
-              accept="video/mp4,video/quicktime"
+            <label className="input-label">Select Media</label>
+            <select className="input-field" value={mediaId} onChange={e => setMediaId(e.target.value)} required>
+              <option value="">-- Select a Video --</option>
+              {mediaList.map(m => (
+                <option key={m.id} value={m.id}>{m.fileName}</option>
+              ))}
+            </select>
+            {mediaList.length === 0 && <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.5rem' }}>Upload media in the Media Library first.</small>}
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Select Account</label>
+            <select className="input-field" value={accountId} onChange={e => setAccountId(e.target.value)} required>
+              <option value="">-- Select Instagram Account --</option>
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>@{a.username}</option>
+              ))}
+            </select>
+            {accounts.length === 0 && <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '0.5rem' }}>Connect an account in the Accounts page first.</small>}
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Caption</label>
+            <textarea 
               className="input-field" 
-              onChange={handleFileChange}
+              value={caption} 
+              onChange={e => setCaption(e.target.value)} 
+              rows={4}
+              placeholder="Write your caption here..."
+            />
+          </div>
+
+          <div className="input-group">
+            <label className="input-label">Scheduled Time</label>
+            <input 
+              type="datetime-local" 
+              className="input-field" 
+              value={scheduledTime} 
+              onChange={e => setScheduledTime(e.target.value)} 
               required
             />
           </div>
           
-          <button type="submit" className="btn btn-primary" disabled={!file || uploading}>
-            {uploading ? 'Uploading...' : 'Upload Video'}
+          <button type="submit" className="btn btn-primary" disabled={loading || !mediaId || !accountId || !scheduledTime}>
+            {loading ? 'Scheduling...' : 'Schedule Reel'}
           </button>
         </form>
       </div>

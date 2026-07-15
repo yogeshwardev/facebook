@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import Layout from '../components/Layout';
+import api from '../utils/api';
 
 interface Account {
   id: string;
@@ -11,12 +13,40 @@ interface Account {
 
 export default function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [searchParams] = useSearchParams();
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchAccounts();
+    
+    if (searchParams.get('success')) {
+      setMessage('Account connected successfully!');
+    }
+    if (searchParams.get('error')) {
+      setError(`Failed to connect account: ${searchParams.get('error')}`);
+    }
+  }, [searchParams]);
+
+  const fetchAccounts = async () => {
+    try {
+      const res = await api.get('/accounts');
+      if (res.data.success) {
+        setAccounts(res.data.data.accounts);
+      }
+    } catch (err) {
+      console.error('Failed to fetch accounts', err);
+    }
+  };
 
   const handleConnect = async () => {
     try {
-      // Logic to fetch OAuth URL from backend
-      alert('OAuth flow initiated. Redirecting to Meta...');
+      const res = await api.get('/accounts/oauth/url');
+      if (res.data.success) {
+        window.location.href = res.data.data.url;
+      }
     } catch (err) {
+      setError('Failed to generate secure login URL. Is the backend running?');
       console.error(err);
     }
   };
@@ -29,6 +59,9 @@ export default function Accounts() {
           Connect Instagram
         </button>
       </div>
+
+      {message && <div style={{ padding: '1rem', background: 'rgba(46, 213, 115, 0.1)', color: 'var(--success)', borderRadius: '8px', marginBottom: '1.5rem', border: '1px solid rgba(46, 213, 115, 0.2)' }}>{message}</div>}
+      {error && <div style={{ padding: '1rem', background: 'rgba(255, 71, 87, 0.1)', color: 'var(--danger)', borderRadius: '8px', marginBottom: '1.5rem', border: '1px solid rgba(255, 71, 87, 0.2)' }}>{error}</div>}
 
       {accounts.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', padding: '4rem 2rem' }}>

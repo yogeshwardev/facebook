@@ -7,20 +7,29 @@ import MediaLibrary from './pages/MediaLibrary';
 import UploadReel from './pages/UploadReel';
 import Calendar from './pages/Calendar';
 
+import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/accounts" element={<Accounts />} />
-        <Route path="/media" element={<MediaLibrary />} />
-        <Route path="/upload" element={<UploadReel />} />
-        <Route path="/calendar" element={<Calendar />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          
+          <Route element={<ProtectedRoute />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/accounts" element={<Accounts />} />
+            <Route path="/media" element={<MediaLibrary />} />
+            <Route path="/upload" element={<UploadReel />} />
+            <Route path="/calendar" element={<Calendar />} />
+          </Route>
+          
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

@@ -1,15 +1,35 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Layout from '../components/Layout';
+import api from '../utils/api';
 
 interface Post {
   id: string;
   caption: string;
-  scheduledTime: string;
   status: string;
+  scheduledTime: string;
+  media: { url: string };
 }
 
 export default function Calendar() {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPosts();
+  }, []);
+
+  const fetchPosts = async () => {
+    try {
+      const res = await api.get('/posts');
+      if (res.data.success) {
+        setPosts(res.data.data.posts);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <Layout>
@@ -22,7 +42,9 @@ export default function Calendar() {
           <h3>Upcoming Scheduled Posts</h3>
         </div>
         
-        {posts.length === 0 ? (
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '2rem' }}>Loading...</div>
+        ) : posts.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
             No upcoming posts scheduled.
           </div>

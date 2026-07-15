@@ -1,9 +1,11 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import '../styles/layout.css';
 
 export default function Sidebar() {
   const location = useLocation();
+  const { logout } = useAuth();
 
   const links = [
     { name: 'Dashboard', path: '/dashboard' },
