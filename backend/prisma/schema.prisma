@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  EXPIRED
+  DISCONNECTED
+}
+
+enum UploadStatus {
+  PENDING
+  UPLOADED
+  FAILED
+}
+
+enum PublishStatus {
+  PENDING
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+enum PublishMode {
+  NOW
+  SCHEDULED
+}
+
+model User {
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  passwordHash       String
+  role               Role               @default(USER)
+  isVerified         Boolean            @default(false)
+  lastLogin          DateTime?
+  avatarUrl          String?
+  timezone           String             @default("UTC")
+  subscriptionPlan   String             @default("FREE")
+  subscriptionStatus String             @default("ACTIVE")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  instagramAccounts  InstagramAccount[]
+  media              Media[]
+  posts              Post[]
+  auditLogs          AuditLog[]
+}
+
+model InstagramAccount {
+  id              String         @id @default(uuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  instagramId     String
+  username        String
+  accessToken     String
+  pageId          String?
+  accountType     String?
+  profilePicture  String?
+  tokenExpiresAt  DateTime?
+  refreshToken    String?
+  status          AccountStatus  @default(ACTIVE)
+  lastSyncAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  postDestinations PostAccountDestination[]
+}
+
+model Media {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileUrl         String
+  thumbnailUrl    String?
+  captionTemplate String?
+  hashtags        String?
+  mimeType        String
+  fileSize        Int
+  duration        Float?
+  width           Int?
+  height          Int?
+  uploadStatus    UploadStatus  @default(PENDING)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  posts           Post[]
+}
+
+model Post {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mediaId         String
+  media           Media         @relation(fields: [mediaId], references: [id])
+  caption         String?
+  scheduledTime   DateTime?
+  status          PublishStatus @default(PENDING)
+  publishMode     PublishMode   @default(NOW)
+  errorMessage    String?
+  retryCount      Int           @default(0)
+  publishedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  destinations    PostAccountDestination[]
+  scheduledJobs   ScheduledJob[]
+}
+
+model PostAccountDestination {
+  id                 String           @id @default(uuid())
+  postId             String
+  post               Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  instagramAccountId String
+  instagramAccount   InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  status             PublishStatus    @default(PENDING)
+  platformPostId     String?
+  errorMessage       String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@unique([postId, instagramAccountId])
+}
+
+model ScheduledJob {
+  id        String   @id @default(uuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  jobId     String
+  queueName String   
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  ipAddress String?
+  userAgent String?
+  requestId String?
+  details   Json?
+  createdAt DateTime @default(now())
+}

@@ -1,0 +1,70 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: reelscheduler_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Use Node.js 20.x
+      uses: actions/setup-node@v3
+      with:
+        node-version: 20.x
+        cache: 'npm'
+
+    - name: Install dependencies (Root)
+      run: npm install
+
+    - name: Install dependencies (Backend)
+      run: cd backend && npm install
+
+    - name: Install dependencies (Frontend)
+      run: cd frontend && npm install
+
+    - name: Prisma Migrate & Generate
+      run: |
+        cd backend
+        npx prisma migrate dev
+      env:
+        DATABASE_URL: postgresql://postgres:password@localhost:5432/reelscheduler_test?schema=public
+
+    - name: Run Backend Tests
+      run: cd backend && npm test
+      env:
+        DATABASE_URL: postgresql://postgres:password@localhost:5432/reelscheduler_test?schema=public
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: super_secret_test_key_123!
+        ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef
+        FACEBOOK_APP_ID: test
+        FACEBOOK_APP_SECRET: test
+        FACEBOOK_REDIRECT_URI: http://localhost:3000
+
+    - name: Build Frontend
+      run: cd frontend && npm run build
