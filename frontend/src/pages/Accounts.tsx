@@ -41,7 +41,7 @@ export default function Accounts() {
 
   const handleConnect = async () => {
     try {
-      const res = await api.get('/accounts/oauth/url');
+      const res = await api.get('/accounts/connect');
       if (res.data.success) {
         window.location.href = res.data.data.url;
       }
