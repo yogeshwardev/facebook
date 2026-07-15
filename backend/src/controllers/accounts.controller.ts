@@ -18,7 +18,7 @@ export const oauthCallback = async (req: Request, res: Response, next: NextFunct
     const { code, state: userId, error, error_description } = req.query;
     
     // In a real application, redirect to the frontend with an error or success parameter
-    const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const FRONTEND_URL = process.env.FRONTEND_URL || 'https://fac.yogeshwar.me';
     
     if (error) {
       logger.error({ error, error_description }, 'OAuth Callback Error');
@@ -32,12 +32,19 @@ export const oauthCallback = async (req: Request, res: Response, next: NextFunct
     const shortLivedToken = await MetaService.getAccessToken(code);
     const longLivedToken = await MetaService.getLongLivedToken(shortLivedToken);
     const pages = await MetaService.getPages(longLivedToken);
+    
+    logger.info(`Found ${pages.length} pages for user ${userId}`);
+
+    let accountsFound = 0;
 
     for (const page of pages) {
       try {
         const igAccount = await MetaService.getInstagramAccount(page.id, page.access_token);
         
-        if (igAccount) {
+        logger.info(`Page ${page.id} - IG Account: ${JSON.stringify(igAccount)}`);
+        
+        if (igAccount && igAccount.id) {
+          accountsFound++;
           const encryptedToken = encrypt(longLivedToken);
           
           const existingAccount = await prisma.instagramAccount.findFirst({
@@ -76,6 +83,7 @@ export const oauthCallback = async (req: Request, res: Response, next: NextFunct
       }
     }
     
+    logger.info(`Finished processing pages. Accounts saved: ${accountsFound}`);
     res.redirect(`${FRONTEND_URL}/accounts?success=true`);
   } catch (err: any) {
     logger.error({ err }, 'Fatal error during oauth callback');
