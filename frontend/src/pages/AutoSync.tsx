@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
 import api from '../utils/api';
+import AccountFeedModal from '../components/AccountFeedModal';
 
 interface MonitoredAccount {
   id: string;
@@ -14,6 +15,7 @@ export default function AutoSync() {
   const [accounts, setAccounts] = useState<MonitoredAccount[]>([]);
   const [newHandle, setNewHandle] = useState('');
   const [loading, setLoading] = useState(true);
+  const [selectedAccount, setSelectedAccount] = useState<{id: string, username: string} | null>(null);
 
   useEffect(() => {
     fetchAccounts();
@@ -151,6 +153,13 @@ export default function AutoSync() {
                 
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button 
+                    className="btn btn-primary"
+                    onClick={() => setSelectedAccount({ id: acc.id, username: acc.targetUsername })}
+                    style={{ padding: '0.5rem 1rem' }}
+                  >
+                    View Reels
+                  </button>
+                  <button 
                     className="btn btn-secondary"
                     onClick={() => toggleStatus(acc.id, !acc.isActive)}
                     style={{ padding: '0.5rem 1rem' }}
@@ -170,6 +179,14 @@ export default function AutoSync() {
           </div>
         )}
       </div>
+
+      {selectedAccount && (
+        <AccountFeedModal 
+          accountId={selectedAccount.id} 
+          targetUsername={selectedAccount.username} 
+          onClose={() => setSelectedAccount(null)} 
+        />
+      )}
     </Layout>
   );
 }
