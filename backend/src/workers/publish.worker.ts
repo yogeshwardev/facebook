@@ -31,6 +31,8 @@ const processPublish = async (job: Job) => {
         videoUrl = `${baseUrl}${videoUrl}`;
       }
 
+      logger.info({ videoUrl }, 'Uploading video to Instagram');
+
       const containerRes = await axios.post(`https://graph.facebook.com/v19.0/${igUserId}/media`, null, {
         params: {
           media_type: 'REELS',
