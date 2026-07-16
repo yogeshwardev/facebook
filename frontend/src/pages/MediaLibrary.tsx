@@ -4,10 +4,10 @@ import api from '../utils/api';
 
 interface Media {
   id: string;
-  url: string;
-  fileName: string;
+  fileUrl: string;
   mimeType: string;
-  size: number;
+  fileSize: number;
+  createdAt: string;
 }
 
 export default function MediaLibrary() {
@@ -54,9 +54,20 @@ export default function MediaLibrary() {
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   return (
     <Layout>
-      <div className="page-header">
+      <div className="page-header" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'flex-start' }}>
         <h1 className="page-title">Media Library</h1>
         <input 
           type="file" 
@@ -69,6 +80,7 @@ export default function MediaLibrary() {
           className="btn btn-primary" 
           onClick={() => fileInputRef.current?.click()}
           disabled={isUploading}
+          style={{ width: '100%' }}
         >
           {isUploading ? 'Uploading...' : 'Upload New Reel'}
         </button>
@@ -82,13 +94,19 @@ export default function MediaLibrary() {
           </p>
         </div>
       ) : (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
           {media.map((item) => (
-            <div key={item.id} className="card" style={{ padding: '0', overflow: 'hidden' }}>
-              <video src={item.url} style={{ width: '100%', aspectRatio: '9/16', objectFit: 'cover' }} controls />
+            <div key={item.id} className="card" style={{ padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+              <video 
+                src={item.fileUrl} 
+                style={{ width: '100%', aspectRatio: '9/16', objectFit: 'contain', backgroundColor: '#000' }} 
+                controls 
+                preload="metadata"
+              />
               <div style={{ padding: '1rem' }}>
-                <div style={{ fontSize: '0.875rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {item.fileName}
+                <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Uploaded</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{formatDate(item.createdAt)}</strong>
                 </div>
               </div>
             </div>

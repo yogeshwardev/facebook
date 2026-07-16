@@ -7,7 +7,7 @@ interface Post {
   caption: string;
   status: string;
   scheduledTime: string;
-  media: { url: string };
+  media: { fileUrl: string };
 }
 
 export default function Calendar() {
@@ -31,6 +31,26 @@ export default function Calendar() {
     }
   };
 
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'PUBLISHED': return '#4ade80'; // Green
+      case 'FAILED': return '#f87171'; // Red
+      case 'SCHEDULED': return '#60a5fa'; // Blue
+      default: return 'var(--text-secondary)';
+    }
+  };
+
   return (
     <Layout>
       <div className="page-header">
@@ -38,7 +58,7 @@ export default function Calendar() {
       </div>
       
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <h3>Upcoming Scheduled Posts</h3>
         </div>
         
@@ -49,14 +69,46 @@ export default function Calendar() {
             No upcoming posts scheduled.
           </div>
         ) : (
-          <ul style={{ listStyle: 'none', padding: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {posts.map(post => (
-              <li key={post.id} style={{ padding: '1rem', borderBottom: '1px solid var(--glass-border)' }}>
-                <strong>{new Date(post.scheduledTime).toLocaleString()}</strong> - {post.caption}
-                <span style={{ float: 'right', color: 'var(--accent-primary)' }}>{post.status}</span>
-              </li>
+              <div key={post.id} style={{ 
+                display: 'flex', 
+                gap: '1rem', 
+                padding: '1rem', 
+                border: '1px solid var(--glass-border)',
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.02)',
+                alignItems: 'center',
+                flexWrap: 'wrap'
+              }}>
+                <video 
+                  src={post.media?.fileUrl} 
+                  style={{ width: '80px', height: '142px', objectFit: 'cover', borderRadius: '8px', backgroundColor: '#000' }} 
+                  muted
+                  controls
+                />
+                <div style={{ flex: 1, minWidth: '200px' }}>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '0.5rem', color: 'var(--accent-primary)' }}>
+                    {formatDate(post.scheduledTime)}
+                  </div>
+                  <p style={{ margin: '0 0 0.5rem 0', color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+                    {post.caption || 'No caption'}
+                  </p>
+                  <span style={{ 
+                    display: 'inline-block',
+                    padding: '0.25rem 0.75rem', 
+                    borderRadius: '999px', 
+                    fontSize: '0.85rem', 
+                    fontWeight: 600,
+                    backgroundColor: `${getStatusColor(post.status)}20`,
+                    color: getStatusColor(post.status) 
+                  }}>
+                    {post.status}
+                  </span>
+                </div>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
     </Layout>
