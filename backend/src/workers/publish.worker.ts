@@ -3,6 +3,7 @@ import { redisConnection } from '../queue/connection';
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
 import { decrypt } from '../utils/crypto';
+import { env } from '../config/env';
 import axios from 'axios';
 
 const prisma = new PrismaClient();
@@ -24,10 +25,16 @@ const processPublish = async (job: Job) => {
       const accessToken = decrypt(dest.instagramAccount.accessToken);
       const igUserId = dest.instagramAccount.instagramId;
       
+      let videoUrl = post.media.fileUrl;
+      if (videoUrl.startsWith('/')) {
+        const baseUrl = new URL(env.FACEBOOK_REDIRECT_URI).origin;
+        videoUrl = `${baseUrl}${videoUrl}`;
+      }
+
       const containerRes = await axios.post(`https://graph.facebook.com/v19.0/${igUserId}/media`, null, {
         params: {
           media_type: 'REELS',
-          video_url: post.media.fileUrl,
+          video_url: videoUrl,
           caption: post.caption,
           access_token: accessToken
         }
