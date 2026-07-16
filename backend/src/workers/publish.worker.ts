@@ -34,7 +34,32 @@ const processPublish = async (job: Job) => {
       });
       const containerId = containerRes.data.id;
 
-      await new Promise(r => setTimeout(r, 5000));
+      // Poll the container status until it's FINISHED
+      let isFinished = false;
+      let attempts = 0;
+      while (!isFinished && attempts < 24) { // Up to 2 minutes
+        await new Promise(r => setTimeout(r, 5000)); // wait 5s
+        attempts++;
+
+        const statusRes = await axios.get(`https://graph.facebook.com/v19.0/${containerId}`, {
+          params: {
+            fields: 'status_code',
+            access_token: accessToken
+          }
+        });
+
+        const statusCode = statusRes.data.status_code;
+        if (statusCode === 'FINISHED') {
+          isFinished = true;
+        } else if (statusCode === 'ERROR' || statusCode === 'EXPIRED') {
+          throw new Error(`Media container processing failed with status: ${statusCode}`);
+        }
+        // If IN_PROGRESS or anything else, keep looping
+      }
+
+      if (!isFinished) {
+        throw new Error('Media container processing timed out after 2 minutes');
+      }
 
       const publishRes = await axios.post(`https://graph.facebook.com/v19.0/${igUserId}/media_publish`, null, {
         params: {
