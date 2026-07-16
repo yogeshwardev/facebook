@@ -15,7 +15,7 @@ export class ApifyService {
       logger.info(`Starting Apify scrape for @${username}`);
       
       const input = {
-        usernames: [username],
+        directUrls: [`https://www.instagram.com/${username}/`],
         resultsType: 'posts',
         resultsLimit: limit,
       };
