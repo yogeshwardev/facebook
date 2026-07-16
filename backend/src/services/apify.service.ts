@@ -29,13 +29,13 @@ export class ApifyService {
       logger.info(`Apify scrape finished for @${username}, found ${items.length} items`);
       
       // Filter to only return reels (video)
-      const videos = items.filter((item: any) => item.type === 'Video');
+      const videos = items.filter((item: any) => item.videoUrl || item.productType === 'clips');
       
       return videos.map((v: any) => ({
         id: v.id,
         media_type: 'VIDEO',
         media_url: v.videoUrl,
-        caption: v.caption,
+        caption: v.text || v.caption,
         timestamp: v.timestamp
       }));
     } catch (error) {
