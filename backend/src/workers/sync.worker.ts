@@ -50,12 +50,8 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
         const mediaList = res.data?.business_discovery?.media?.data || [];
         videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
       } catch (err: any) {
-        if (err.isAxiosError && err.response?.data?.error?.code === 10) {
-          logger.info(`Official API blocked for @${account.targetUsername}, falling back to Apify`);
-          videos = await ApifyService.getInstagramReels(account.targetUsername);
-        } else {
-          throw err;
-        }
+        logger.info(`Official API failed for @${account.targetUsername}, falling back to Apify`);
+        videos = await ApifyService.getInstagramReels(account.targetUsername.replace(/^@+/, ''));
       }
 
       if (videos.length === 0) continue;

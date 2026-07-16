@@ -21,8 +21,8 @@ export const addMonitoredAccount = async (req: AuthRequest, res: Response, next:
       return res.status(400).json({ success: false, message: 'Target username is required' });
     }
 
-    // Clean username (remove @ if present)
-    const username = targetUsername.replace(/^@/, '').trim();
+    // Clean username (remove all leading @ if present)
+    const username = targetUsername.replace(/^@+/, '').trim();
 
     const account = await prisma.monitoredAccount.create({
       data: {
@@ -152,14 +152,10 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       });
       const mediaList = igRes.data?.business_discovery?.media?.data || [];
       videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
-    } catch (err: any) {
-      if (err.isAxiosError && err.response?.data?.error?.code === 10) {
-        logger.info(`Official API blocked for @${account.targetUsername}, falling back to Apify`);
-        videos = await ApifyService.getInstagramReels(account.targetUsername);
-      } else {
-        throw err;
+      } catch (err: any) {
+        logger.info(`Official API failed for @${account.targetUsername}, falling back to Apify`);
+        videos = await ApifyService.getInstagramReels(account.targetUsername.replace(/^@+/, ''));
       }
-    }
 
     // Attach sync status
     const syncedMedia = await prisma.media.findMany({
