@@ -161,6 +161,9 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
 
     res.json({ success: true, data: { feed } });
   } catch (err: any) {
+    if (err.isAxiosError && err.response?.data?.error?.message) {
+      return res.status(400).json({ success: false, message: `Instagram API Error: ${err.response.data.error.message}` });
+    }
     next(err);
   }
 };
@@ -233,7 +236,10 @@ export const repostMedia = async (req: AuthRequest, res: Response, next: NextFun
     });
 
     res.json({ success: true, message: 'Reposted successfully!', data: { post: newPost } });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.isAxiosError && err.response?.data?.error?.message) {
+      return res.status(400).json({ success: false, message: `Instagram API Error: ${err.response.data.error.message}` });
+    }
     next(err);
   }
 };
