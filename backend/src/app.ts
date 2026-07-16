@@ -37,7 +37,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // Static files for local storage
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+app.use('/api/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Routes
 app.use('/api/v1/auth', authRoutes);

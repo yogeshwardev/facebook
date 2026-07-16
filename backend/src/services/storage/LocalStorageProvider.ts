@@ -20,14 +20,14 @@ export class LocalStorageProvider implements StorageService {
     await fs.copyFile(file.path, targetPath);
     await fs.unlink(file.path); // Remove temp file
 
-    // Return a local URL accessible via static route
-    return `/uploads/${folder}/${filename}`;
+    // Return a local URL accessible via static route (proxied under /api)
+    return `/api/uploads/${folder}/${filename}`;
   }
 
   async deleteFile(fileUrl: string): Promise<boolean> {
     try {
-      if (!fileUrl.startsWith('/uploads/')) return false;
-      const relativePath = fileUrl.replace('/uploads/', '');
+      if (!fileUrl.startsWith('/api/uploads/')) return false;
+      const relativePath = fileUrl.replace('/api/uploads/', '');
       const fullPath = path.join(this.uploadDir, relativePath);
       await fs.unlink(fullPath);
       return true;
