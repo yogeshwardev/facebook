@@ -6,6 +6,7 @@ import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
 import { storageProvider } from '../services/storage';
+import { decrypt } from '../utils/crypto';
 
 const prisma = new PrismaClient();
 
@@ -136,10 +137,12 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       return res.status(400).json({ success: false, message: 'No active Instagram account found to query from' });
     }
 
+    const decryptedToken = decrypt(igAccount.accessToken);
+
     const igRes = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
       params: {
         fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
-        access_token: igAccount.accessToken
+        access_token: decryptedToken
       }
     });
 
@@ -221,6 +224,7 @@ export const repostMedia = async (req: AuthRequest, res: Response, next: NextFun
     });
 
     const igAccount = account.user.instagramAccounts[0];
+    const decryptedToken = decrypt(igAccount.accessToken);
 
     const newPost = await prisma.post.create({
       data: {

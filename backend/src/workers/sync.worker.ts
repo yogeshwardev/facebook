@@ -6,6 +6,7 @@ import axios from 'axios';
 import fs from 'fs/promises';
 import path from 'path';
 import { storageProvider } from '../services/storage';
+import { decrypt } from '../utils/crypto';
 
 const prisma = new PrismaClient();
 
@@ -31,6 +32,8 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
     try {
       const igAccount = account.user.instagramAccounts[0];
       if (!igAccount) continue;
+      
+      const decryptedToken = decrypt(igAccount.accessToken);
 
       logger.info(`Checking target @${account.targetUsername} for user ${account.userId}`);
 
@@ -38,7 +41,7 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
       const res = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
         params: {
           fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
-          access_token: igAccount.accessToken
+          access_token: decryptedToken
         }
       });
 
