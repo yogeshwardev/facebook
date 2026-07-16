@@ -50,7 +50,7 @@ const processPublish = async (job: Job) => {
 
         const statusRes = await axios.get(`https://graph.facebook.com/v19.0/${containerId}`, {
           params: {
-            fields: 'status_code',
+            fields: 'status_code,status',
             access_token: accessToken
           }
         });
@@ -59,7 +59,7 @@ const processPublish = async (job: Job) => {
         if (statusCode === 'FINISHED') {
           isFinished = true;
         } else if (statusCode === 'ERROR' || statusCode === 'EXPIRED') {
-          throw new Error(`Media container processing failed with status: ${statusCode}`);
+          throw new Error(`Media container processing failed with status: ${statusCode}. Details: ${JSON.stringify(statusRes.data)}`);
         }
         // If IN_PROGRESS or anything else, keep looping
       }
