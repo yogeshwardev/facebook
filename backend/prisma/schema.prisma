@@ -52,6 +52,7 @@ model User {
   updatedAt          DateTime           @updatedAt
 
   instagramAccounts  InstagramAccount[]
+  monitoredAccounts  MonitoredAccount[]
   media              Media[]
   posts              Post[]
   auditLogs          AuditLog[]
@@ -90,6 +91,7 @@ model Media {
   duration        Float?
   width           Int?
   height          Int?
+  sourceMediaId   String?       @unique
   uploadStatus    UploadStatus  @default(PENDING)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -153,4 +155,17 @@ model AuditLog {
   requestId String?
   details   Json?
   createdAt DateTime @default(now())
+}
+
+model MonitoredAccount {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetUsername  String
+  lastCheckedAt   DateTime?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, targetUsername])
 }

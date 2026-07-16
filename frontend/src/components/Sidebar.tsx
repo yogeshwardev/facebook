@@ -30,6 +30,9 @@ export default function Sidebar() {
             {link.name}
           </Link>
         ))}
+        <Link to="/auto-sync" className={`nav-link ${location.pathname === '/auto-sync' ? 'active' : ''}`}>
+          Auto Sync
+        </Link>
       </nav>
     </aside>
   );

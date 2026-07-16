@@ -6,6 +6,7 @@ import Accounts from './pages/Accounts';
 import MediaLibrary from './pages/MediaLibrary';
 import UploadReel from './pages/UploadReel';
 import Calendar from './pages/Calendar';
+import AutoSync from './pages/AutoSync';
 
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -24,6 +25,7 @@ function App() {
             <Route path="/media" element={<MediaLibrary />} />
             <Route path="/upload" element={<UploadReel />} />
             <Route path="/calendar" element={<Calendar />} />
+            <Route path="/auto-sync" element={<AutoSync />} />
           </Route>
           
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

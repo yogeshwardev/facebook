@@ -8,6 +8,7 @@ import authRoutes from './routes/auth.routes';
 import accountsRoutes from './routes/accounts.routes';
 import mediaRoutes from './routes/media.routes';
 import postRoutes from './routes/post.routes';
+import monitorRoutes from './routes/monitor.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import path from 'path';
 
@@ -44,6 +45,7 @@ app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/accounts', accountsRoutes);
 app.use('/api/v1/media', mediaRoutes);
 app.use('/api/v1/posts', postRoutes);
+app.use('/api/v1/monitor', monitorRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
 
 // Global Error Handler
