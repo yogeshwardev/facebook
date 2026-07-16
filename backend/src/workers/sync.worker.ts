@@ -7,6 +7,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { storageProvider } from '../services/storage';
 import { decrypt } from '../utils/crypto';
+import { ApifyService } from '../services/apify.service';
 
 const prisma = new PrismaClient();
 
@@ -37,20 +38,30 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
 
       logger.info(`Checking target @${account.targetUsername} for user ${account.userId}`);
 
-      // Use Business Discovery API to fetch target user's media
-      const res = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
-        params: {
-          fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
-          access_token: decryptedToken
+      let videos: any[] = [];
+      
+      try {
+        const res = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
+          params: {
+            fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
+            access_token: decryptedToken
+          }
+        });
+        const mediaList = res.data?.business_discovery?.media?.data || [];
+        videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
+      } catch (err: any) {
+        if (err.isAxiosError && err.response?.data?.error?.code === 10) {
+          logger.info(`Official API blocked for @${account.targetUsername}, falling back to Apify`);
+          videos = await ApifyService.getInstagramReels(account.targetUsername);
+        } else {
+          throw err;
         }
-      });
+      }
 
-      const mediaList = res.data?.business_discovery?.media?.data || [];
-      if (mediaList.length === 0) continue;
+      if (videos.length === 0) continue;
 
       // Find the most recent video
-      const latestVideo = mediaList.find((m: any) => m.media_type === 'VIDEO');
-      if (!latestVideo) continue;
+      const latestVideo = videos[0];
 
       // Check if we've already synced this media
       const existing = await prisma.media.findUnique({
