@@ -68,13 +68,30 @@ export default function AutoSync() {
     }
   };
 
+  const handleSyncNow = async () => {
+    try {
+      const res = await api.post('/monitor/sync');
+      if (res.data.success) {
+        alert(res.data.message);
+        fetchAccounts(); // Refresh the last checked time
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Failed to trigger sync');
+    }
+  };
+
   return (
     <Layout>
-      <div className="page-header">
-        <h1 className="page-title">Auto-Sync Watchlist</h1>
-        <p style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-          Automatically download and repost reels from monitored Business/Creator accounts.
-        </p>
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className="page-title">Auto-Sync Watchlist</h1>
+          <p style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
+            Automatically download and repost reels from monitored Business/Creator accounts.
+          </p>
+        </div>
+        <button className="btn btn-primary" onClick={handleSyncNow}>
+          🔄 Force Sync Now
+        </button>
       </div>
 
       <div className="card" style={{ marginBottom: '2rem' }}>

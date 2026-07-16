@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { PrismaClient } from '@prisma/client';
+import { syncQueue } from '../queue/queues';
 
 const prisma = new PrismaClient();
 
@@ -22,6 +23,9 @@ export const addMonitoredAccount = async (req: AuthRequest, res: Response, next:
         targetUsername: username
       }
     });
+
+    // Trigger an immediate sync
+    await syncQueue.add('sync-job', { accountId: account.id });
 
     res.status(201).json({
       success: true,
@@ -88,6 +92,18 @@ export const toggleMonitorStatus = async (req: AuthRequest, res: Response, next:
     });
 
     res.json({ success: true, data: { account: updated } });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const triggerSync = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user!.userId;
+    // We can just add a global sync job, or a specific one for this user
+    await syncQueue.add('manual-sync-job', { userId });
+    
+    res.json({ success: true, message: 'Sync triggered successfully! Check your Calendar in a few minutes.' });
   } catch (err) {
     next(err);
   }
