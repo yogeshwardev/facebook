@@ -1,4 +1,4 @@
-import { chromium, Browser, Page, BrowserContext } from 'playwright';
+import axios, { AxiosInstance } from 'axios';
 import { logger } from '../utils/logger';
 
 interface ScrapedPost {
@@ -10,385 +10,382 @@ interface ScrapedPost {
   thumbnailUrl?: string;
 }
 
-// Random delay to mimic human behavior
-function randomDelay(min: number, max: number): Promise<void> {
-  const ms = Math.floor(Math.random() * (max - min + 1)) + min;
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+// Instagram's internal app ID (used by the web client)
+const IG_APP_ID = '936619743392459';
 
 // Rotate user agents to avoid fingerprinting
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) Gecko/20100101 Firefox/130.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
 ];
 
 function getRandomUserAgent(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
+function randomDelay(min: number, max: number): Promise<void> {
+  const ms = Math.floor(Math.random() * (max - min + 1)) + min;
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 export class InstagramScraperService {
-  private static browser: Browser | null = null;
 
   /**
-   * Get or launch a shared browser instance.
-   * Reusing the browser avoids the overhead of launching Chromium for every request.
+   * Create an axios instance with stealth headers that mimic a real browser.
    */
-  private static async getBrowser(): Promise<Browser> {
-    if (!this.browser || !this.browser.isConnected()) {
-      logger.info('Launching headless Chromium for Instagram scraping...');
-      this.browser = await chromium.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-zygote',
-          '--single-process',
-          '--disable-blink-features=AutomationControlled',
-        ],
-      });
-    }
-    return this.browser;
+  private static createClient(): AxiosInstance {
+    return axios.create({
+      timeout: 15000,
+      headers: {
+        'User-Agent': getRandomUserAgent(),
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Referer': 'https://www.instagram.com/',
+        'X-IG-App-ID': IG_APP_ID,
+        'X-Requested-With': 'XMLHttpRequest',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Ch-Ua': '"Chromium";v="128", "Not;A=Brand";v="24", "Google Chrome";v="128"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+      },
+    });
   }
 
   /**
-   * Create a stealth browser context that mimics a real user.
-   */
-  private static async createStealthContext(browser: Browser): Promise<BrowserContext> {
-    const context = await browser.newContext({
-      userAgent: getRandomUserAgent(),
-      viewport: { width: 1920, height: 1080 },
-      locale: 'en-US',
-      timezoneId: 'America/New_York',
-      // Bypass Instagram's automation detection
-      javaScriptEnabled: true,
-      bypassCSP: true,
-    });
-
-    // Override navigator.webdriver to hide automation
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-      // Override chrome detection
-      (window as any).chrome = { runtime: {} };
-      // Override permissions
-      const originalQuery = window.navigator.permissions.query;
-      window.navigator.permissions.query = (parameters: any) =>
-        parameters.name === 'notifications'
-          ? Promise.resolve({ state: 'denied' } as PermissionStatus)
-          : originalQuery(parameters);
-      // Override plugins to look like a real browser
-      Object.defineProperty(navigator, 'plugins', {
-        get: () => [1, 2, 3, 4, 5],
-      });
-      Object.defineProperty(navigator, 'languages', {
-        get: () => ['en-US', 'en'],
-      });
-    });
-
-    return context;
-  }
-
-  /**
-   * Scrape Instagram posts/reels from a public profile using the Instagram private API.
-   * This method intercepts the GraphQL network responses to extract post data.
+   * Main entry point: Scrape Instagram posts/reels from a public profile.
+   * Uses multiple strategies in order:
+   * 1. Instagram's private web API (fastest, most data)
+   * 2. Public page HTML parsing (embedded JSON)
+   * 3. Instagram's i.instagram.com mobile API
    */
   static async scrapeProfile(username: string, limit: number = 20): Promise<ScrapedPost[]> {
     const cleanUsername = username.replace(/^@+/, '').trim();
-    logger.info(`[CustomScraper] Starting scrape for @${cleanUsername}`);
+    logger.info(`[Scraper] Starting scrape for @${cleanUsername}`);
 
-    const browser = await this.getBrowser();
-    const context = await this.createStealthContext(browser);
-    const page = await context.newPage();
-
-    const posts: ScrapedPost[] = [];
-    let graphqlDataCaptured = false;
-
+    // Strategy 1: Try the web profile info API
     try {
-      // Intercept GraphQL responses that contain media data
-      page.on('response', async (response) => {
+      const posts = await this.tryWebProfileApi(cleanUsername, limit);
+      if (posts.length > 0) {
+        logger.info(`[Scraper] Web API returned ${posts.length} videos for @${cleanUsername}`);
+        return posts;
+      }
+    } catch (err: any) {
+      logger.warn(`[Scraper] Web API failed for @${cleanUsername}: ${err.message}`);
+    }
+
+    await randomDelay(1000, 2000);
+
+    // Strategy 2: Try parsing the public profile page HTML
+    try {
+      const posts = await this.tryPublicPageParse(cleanUsername, limit);
+      if (posts.length > 0) {
+        logger.info(`[Scraper] HTML parse returned ${posts.length} videos for @${cleanUsername}`);
+        return posts;
+      }
+    } catch (err: any) {
+      logger.warn(`[Scraper] HTML parse failed for @${cleanUsername}: ${err.message}`);
+    }
+
+    await randomDelay(1000, 2000);
+
+    // Strategy 3: Try the mobile API
+    try {
+      const posts = await this.tryMobileApi(cleanUsername, limit);
+      if (posts.length > 0) {
+        logger.info(`[Scraper] Mobile API returned ${posts.length} videos for @${cleanUsername}`);
+        return posts;
+      }
+    } catch (err: any) {
+      logger.warn(`[Scraper] Mobile API failed for @${cleanUsername}: ${err.message}`);
+    }
+
+    logger.warn(`[Scraper] All strategies failed for @${cleanUsername}`);
+    return [];
+  }
+
+  /**
+   * Strategy 1: Use Instagram's web profile info API.
+   * This endpoint returns JSON with all the user's posts.
+   */
+  private static async tryWebProfileApi(username: string, limit: number): Promise<ScrapedPost[]> {
+    const client = this.createClient();
+    const posts: ScrapedPost[] = [];
+
+    // First, get the web profile info (contains user ID and recent posts)
+    const res = await client.get(
+      `https://www.instagram.com/api/v1/users/web_profile_info/`,
+      { params: { username } }
+    );
+
+    const user = res.data?.data?.user;
+    if (!user) {
+      throw new Error('User not found or private');
+    }
+
+    // Extract posts from edge_owner_to_timeline_media
+    const edges = user.edge_owner_to_timeline_media?.edges || [];
+    for (const edge of edges) {
+      const node = edge.node;
+      if (!node || !node.is_video) continue;
+
+      let videoUrl = node.video_url || '';
+
+      // If no video_url in the listing, fetch individual post
+      if (!videoUrl && node.shortcode) {
         try {
-          const url = response.url();
-          if (url.includes('/graphql/query') || url.includes('/api/v1/users/')) {
-            const contentType = response.headers()['content-type'] || '';
-            if (contentType.includes('application/json')) {
-              const json = await response.json().catch(() => null);
-              if (json) {
-                this.extractPostsFromGraphQL(json, posts, limit);
-                if (posts.length > 0) {
-                  graphqlDataCaptured = true;
-                }
-              }
-            }
-          }
+          await randomDelay(300, 800);
+          videoUrl = await this.fetchPostVideoUrl(client, node.shortcode);
         } catch {
-          // Ignore response parsing errors
+          // Skip this post
+          continue;
         }
-      });
-
-      // Navigate to the Instagram profile
-      const profileUrl = `https://www.instagram.com/${cleanUsername}/`;
-      logger.info(`[CustomScraper] Navigating to ${profileUrl}`);
-
-      await page.goto(profileUrl, {
-        waitUntil: 'networkidle',
-        timeout: 30000,
-      });
-
-      // Wait a bit for dynamic content
-      await randomDelay(2000, 4000);
-
-      // Check if we hit a login wall or private account
-      const pageContent = await page.content();
-      if (pageContent.includes('Login') && pageContent.includes('Sign up') && !pageContent.includes('article')) {
-        logger.warn(`[CustomScraper] Login wall detected for @${cleanUsername}`);
       }
 
-      // If GraphQL interception didn't capture data, try scraping the page directly
-      if (!graphqlDataCaptured || posts.length === 0) {
-        logger.info(`[CustomScraper] GraphQL capture empty, trying DOM extraction...`);
-        const domPosts = await this.extractPostsFromDOM(page, cleanUsername);
-        posts.push(...domPosts);
+      if (videoUrl) {
+        posts.push({
+          id: node.id || String(node.pk),
+          media_type: 'VIDEO',
+          media_url: videoUrl,
+          caption: node.edge_media_to_caption?.edges?.[0]?.node?.text || '',
+          timestamp: node.taken_at_timestamp
+            ? new Date(node.taken_at_timestamp * 1000).toISOString()
+            : new Date().toISOString(),
+          thumbnailUrl: node.display_url || node.thumbnail_src,
+        });
       }
 
-      // If we still have no posts, try the Instagram private API endpoint directly
-      if (posts.length === 0) {
-        logger.info(`[CustomScraper] DOM extraction empty, trying private API...`);
-        const apiPosts = await this.tryPrivateApi(page, cleanUsername, limit);
-        posts.push(...apiPosts);
-      }
-
-      logger.info(`[CustomScraper] Scraped ${posts.length} posts for @${cleanUsername}`);
-
-      // Return only videos/reels, up to the limit
-      const videoPosts = posts.filter(p => p.media_type === 'VIDEO').slice(0, limit);
-      logger.info(`[CustomScraper] Found ${videoPosts.length} video/reel posts`);
-
-      return videoPosts;
-    } catch (error) {
-      logger.error({ error }, `[CustomScraper] Failed to scrape @${cleanUsername}`);
-      throw error;
-    } finally {
-      await page.close();
-      await context.close();
+      if (posts.length >= limit) break;
     }
-  }
 
-  /**
-   * Extract post data from intercepted GraphQL JSON responses.
-   */
-  private static extractPostsFromGraphQL(json: any, posts: ScrapedPost[], limit: number): void {
-    try {
-      // Try multiple possible JSON paths where Instagram hides media data
-      const possiblePaths = [
-        json?.data?.user?.edge_owner_to_timeline_media?.edges,
-        json?.data?.xdt_api__v1__feed__user_timeline_graphql_connection?.edges,
-        json?.graphql?.user?.edge_owner_to_timeline_media?.edges,
-        json?.data?.user?.edge_felix_video_timeline?.edges,
-        json?.items,
-      ];
+    // Also check edge_felix_video_timeline (dedicated reels/IGTV)
+    const reelEdges = user.edge_felix_video_timeline?.edges || [];
+    for (const edge of reelEdges) {
+      const node = edge.node;
+      if (!node) continue;
+      // Skip if already added
+      if (posts.find(p => p.id === node.id)) continue;
 
-      for (const edges of possiblePaths) {
-        if (!edges || !Array.isArray(edges)) continue;
-
-        for (const edge of edges) {
-          if (posts.length >= limit) return;
-
-          const node = edge?.node || edge;
-          if (!node) continue;
-
-          const isVideo = node.is_video || node.media_type === 2 || node.product_type === 'clips' || node.video_url;
-
-          if (isVideo) {
-            const post: ScrapedPost = {
-              id: node.id || node.pk || `ig_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-              media_type: 'VIDEO',
-              media_url: node.video_url || node.video_versions?.[0]?.url || '',
-              caption:
-                node.edge_media_to_caption?.edges?.[0]?.node?.text ||
-                node.caption?.text ||
-                node.caption ||
-                '',
-              timestamp: node.taken_at_timestamp
-                ? new Date(node.taken_at_timestamp * 1000).toISOString()
-                : node.taken_at
-                  ? new Date(node.taken_at * 1000).toISOString()
-                  : new Date().toISOString(),
-              thumbnailUrl: node.display_url || node.thumbnail_src || node.image_versions2?.candidates?.[0]?.url,
-            };
-
-            // Avoid duplicates
-            if (post.media_url && !posts.find(p => p.id === post.id)) {
-              posts.push(post);
-            }
-          }
+      let videoUrl = node.video_url || '';
+      if (!videoUrl && node.shortcode) {
+        try {
+          await randomDelay(300, 800);
+          videoUrl = await this.fetchPostVideoUrl(client, node.shortcode);
+        } catch {
+          continue;
         }
       }
-    } catch (err) {
-      // Silently ignore parsing errors for individual GraphQL responses
-    }
-  }
 
-  /**
-   * Fallback: Extract posts by parsing the rendered DOM.
-   * This works when GraphQL interception fails but the page rendered properly.
-   */
-  private static async extractPostsFromDOM(page: Page, username: string): Promise<ScrapedPost[]> {
-    const posts: ScrapedPost[] = [];
-
-    try {
-      // Try to find the __additionalData or shared_data script
-      const sharedData = await page.evaluate(() => {
-        // Method 1: Check window._sharedData
-        if ((window as any)._sharedData?.entry_data?.ProfilePage?.[0]?.graphql?.user) {
-          return (window as any)._sharedData.entry_data.ProfilePage[0].graphql.user;
-        }
-
-        // Method 2: Check __additionalDataLoaded
-        if ((window as any).__additionalDataLoaded) {
-          const keys = Object.keys((window as any).__additionalDataLoaded);
-          for (const key of keys) {
-            const data = (window as any).__additionalDataLoaded[key];
-            if (data?.graphql?.user) return data.graphql.user;
-          }
-        }
-
-        // Method 3: Parse script tags for JSON data
-        const scripts = document.querySelectorAll('script[type="application/json"]');
-        for (const script of scripts) {
-          try {
-            const json = JSON.parse(script.textContent || '');
-            // Look for user media data in the JSON
-            const findMedia = (obj: any, depth: number = 0): any => {
-              if (depth > 5 || !obj || typeof obj !== 'object') return null;
-              if (obj.edge_owner_to_timeline_media?.edges) return obj;
-              for (const key of Object.keys(obj)) {
-                const result = findMedia(obj[key], depth + 1);
-                if (result) return result;
-              }
-              return null;
-            };
-            const result = findMedia(json);
-            if (result) return result;
-          } catch {
-            continue;
-          }
-        }
-
-        return null;
-      });
-
-      if (sharedData?.edge_owner_to_timeline_media?.edges) {
-        this.extractPostsFromGraphQL({ data: { user: sharedData } }, posts, 20);
+      if (videoUrl) {
+        posts.push({
+          id: node.id || String(node.pk),
+          media_type: 'VIDEO',
+          media_url: videoUrl,
+          caption: node.edge_media_to_caption?.edges?.[0]?.node?.text || '',
+          timestamp: node.taken_at_timestamp
+            ? new Date(node.taken_at_timestamp * 1000).toISOString()
+            : new Date().toISOString(),
+          thumbnailUrl: node.display_url || node.thumbnail_src,
+        });
       }
-    } catch (err) {
-      logger.warn(`[CustomScraper] DOM extraction failed for @${username}`);
+
+      if (posts.length >= limit) break;
     }
 
     return posts;
   }
 
   /**
-   * Fallback: Try hitting Instagram's private web API directly from the browser context.
+   * Fetch the video URL for a specific post by shortcode.
    */
-  private static async tryPrivateApi(page: Page, username: string, limit: number): Promise<ScrapedPost[]> {
+  private static async fetchPostVideoUrl(client: AxiosInstance, shortcode: string): Promise<string> {
+    const res = await client.get(
+      `https://www.instagram.com/p/${shortcode}/`,
+      {
+        params: { __a: 1, __d: 'dis' },
+        headers: { ...client.defaults.headers.common as any },
+      }
+    );
+
+    const item = res.data?.items?.[0] || res.data?.graphql?.shortcode_media;
+    return item?.video_url || item?.video_versions?.[0]?.url || '';
+  }
+
+  /**
+   * Strategy 2: Parse the public Instagram profile page HTML.
+   * Instagram embeds JSON data in script tags on the page.
+   */
+  private static async tryPublicPageParse(username: string, limit: number): Promise<ScrapedPost[]> {
+    const client = this.createClient();
     const posts: ScrapedPost[] = [];
 
-    try {
-      // First, get the user ID
-      const userInfo = await page.evaluate(async (uname: string) => {
+    const res = await client.get(`https://www.instagram.com/${username}/`, {
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+      },
+    });
+
+    const html: string = res.data;
+
+    // Try to find embedded JSON data in script tags
+    const patterns = [
+      /window\._sharedData\s*=\s*({.+?});<\/script>/s,
+      /window\.__additionalDataLoaded\s*\([^,]+,\s*({.+?})\s*\);<\/script>/s,
+      /<script\s+type="application\/json"\s+data-content-len="\d+"\s+data-sjs>({.+?})<\/script>/gs,
+    ];
+
+    for (const pattern of patterns) {
+      const matches = html.matchAll(pattern);
+      for (const match of matches) {
         try {
-          const res = await fetch(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${uname}`, {
-            headers: {
-              'x-ig-app-id': '936619743392459',
-              'x-requested-with': 'XMLHttpRequest',
-            },
-          });
-          if (res.ok) {
-            return await res.json();
-          }
+          const json = JSON.parse(match[1]);
+          const extracted = this.extractVideosFromJson(json, limit);
+          posts.push(...extracted);
+          if (posts.length > 0) return posts.slice(0, limit);
         } catch {
-          return null;
+          continue;
         }
-        return null;
-      }, username);
+      }
+    }
 
-      if (userInfo?.data?.user) {
-        const user = userInfo.data.user;
-        const edges = user.edge_owner_to_timeline_media?.edges || [];
+    return posts;
+  }
 
-        for (const edge of edges) {
+  /**
+   * Strategy 3: Use Instagram's mobile API (i.instagram.com).
+   */
+  private static async tryMobileApi(username: string, limit: number): Promise<ScrapedPost[]> {
+    const posts: ScrapedPost[] = [];
+
+    const mobileClient = axios.create({
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Instagram 317.0.0.34.109 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100; en_US; 562425185)',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US',
+        'X-IG-App-ID': '567067343352427', // Android app ID
+      },
+    });
+
+    try {
+      // Get user ID first
+      const searchRes = await mobileClient.get(
+        `https://i.instagram.com/api/v1/users/web_profile_info/`,
+        { params: { username } }
+      );
+
+      const userId = searchRes.data?.data?.user?.id;
+      if (!userId) throw new Error('User ID not found');
+
+      // Get user feed
+      const feedRes = await mobileClient.get(
+        `https://i.instagram.com/api/v1/feed/user/${userId}/`,
+        { params: { count: limit } }
+      );
+
+      const items = feedRes.data?.items || [];
+      for (const item of items) {
+        if (item.media_type !== 2 && item.product_type !== 'clips') continue;
+
+        const videoUrl = item.video_versions?.[0]?.url || '';
+        if (!videoUrl) continue;
+
+        posts.push({
+          id: item.id || String(item.pk),
+          media_type: 'VIDEO',
+          media_url: videoUrl,
+          caption: item.caption?.text || '',
+          timestamp: item.taken_at
+            ? new Date(item.taken_at * 1000).toISOString()
+            : new Date().toISOString(),
+          thumbnailUrl: item.image_versions2?.candidates?.[0]?.url,
+        });
+
+        if (posts.length >= limit) break;
+      }
+    } catch (err: any) {
+      throw new Error(`Mobile API error: ${err.message}`);
+    }
+
+    return posts;
+  }
+
+  /**
+   * Recursively search a JSON object for video post data.
+   */
+  private static extractVideosFromJson(json: any, limit: number, depth: number = 0): ScrapedPost[] {
+    const posts: ScrapedPost[] = [];
+    if (depth > 8 || !json || typeof json !== 'object') return posts;
+
+    // Check for known edge arrays
+    const edgeKeys = [
+      'edge_owner_to_timeline_media',
+      'edge_felix_video_timeline',
+      'xdt_api__v1__feed__user_timeline_graphql_connection',
+    ];
+
+    for (const key of edgeKeys) {
+      if (json[key]?.edges) {
+        for (const edge of json[key].edges) {
           const node = edge.node;
-          if (!node) continue;
+          if (!node || !node.is_video) continue;
 
-          if (node.is_video) {
-            // We need the video URL - fetch individual post
-            const videoUrl = await this.fetchVideoUrl(page, node.shortcode);
-            if (videoUrl) {
-              posts.push({
-                id: node.id,
-                media_type: 'VIDEO',
-                media_url: videoUrl,
-                caption: node.edge_media_to_caption?.edges?.[0]?.node?.text || '',
-                timestamp: new Date(node.taken_at_timestamp * 1000).toISOString(),
-                thumbnailUrl: node.display_url || node.thumbnail_src,
-              });
-            }
-          }
+          posts.push({
+            id: node.id || String(node.pk),
+            media_type: 'VIDEO',
+            media_url: node.video_url || '',
+            caption: node.edge_media_to_caption?.edges?.[0]?.node?.text || '',
+            timestamp: node.taken_at_timestamp
+              ? new Date(node.taken_at_timestamp * 1000).toISOString()
+              : new Date().toISOString(),
+            thumbnailUrl: node.display_url || node.thumbnail_src,
+          });
 
-          if (posts.length >= limit) break;
+          if (posts.length >= limit) return posts;
         }
       }
-    } catch (err) {
-      logger.warn(`[CustomScraper] Private API attempt failed for @${username}`);
+    }
+
+    // Check for items array (mobile API format)
+    if (Array.isArray(json.items)) {
+      for (const item of json.items) {
+        if (item.media_type !== 2 && item.product_type !== 'clips') continue;
+        const videoUrl = item.video_versions?.[0]?.url || item.video_url || '';
+        if (!videoUrl) continue;
+
+        posts.push({
+          id: item.id || String(item.pk),
+          media_type: 'VIDEO',
+          media_url: videoUrl,
+          caption: item.caption?.text || '',
+          timestamp: item.taken_at
+            ? new Date(item.taken_at * 1000).toISOString()
+            : new Date().toISOString(),
+          thumbnailUrl: item.image_versions2?.candidates?.[0]?.url,
+        });
+
+        if (posts.length >= limit) return posts;
+      }
+    }
+
+    // Recurse into child objects
+    if (posts.length === 0) {
+      for (const key of Object.keys(json)) {
+        if (typeof json[key] === 'object') {
+          const found = this.extractVideosFromJson(json[key], limit, depth + 1);
+          posts.push(...found);
+          if (posts.length >= limit) return posts.slice(0, limit);
+        }
+      }
     }
 
     return posts;
-  }
-
-  /**
-   * Fetch the video URL for a specific post by its shortcode.
-   */
-  private static async fetchVideoUrl(page: Page, shortcode: string): Promise<string | null> {
-    try {
-      const postData = await page.evaluate(async (code: string) => {
-        try {
-          const res = await fetch(`https://www.instagram.com/api/v1/media/${code}/info/`, {
-            headers: {
-              'x-ig-app-id': '936619743392459',
-              'x-requested-with': 'XMLHttpRequest',
-            },
-          });
-          if (res.ok) {
-            return await res.json();
-          }
-        } catch {
-          return null;
-        }
-        return null;
-      }, shortcode);
-
-      if (postData?.items?.[0]?.video_versions) {
-        return postData.items[0].video_versions[0].url;
-      }
-    } catch {
-      // Ignore
-    }
-    return null;
-  }
-
-  /**
-   * Gracefully close the browser instance.
-   */
-  static async closeBrowser(): Promise<void> {
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
-      logger.info('[CustomScraper] Browser closed');
-    }
   }
 }
