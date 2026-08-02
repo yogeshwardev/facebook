@@ -8,6 +8,7 @@ import path from 'path';
 import { storageProvider } from '../services/storage';
 import { decrypt } from '../utils/crypto';
 import { ApifyService } from '../services/apify.service';
+import { InstagramScraperService } from '../services/instagram-scraper.service';
 
 const prisma = new PrismaClient();
 
@@ -50,8 +51,14 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
         const mediaList = res.data?.business_discovery?.media?.data || [];
         videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
       } catch (err: any) {
-        logger.info(`Official API failed for @${account.targetUsername}, falling back to Apify`);
-        videos = await ApifyService.getInstagramReels(account.targetUsername.replace(/^@+/, ''));
+        logger.info(`Official API failed for @${account.targetUsername}, trying custom scraper...`);
+        const cleanUser = account.targetUsername.replace(/^@+/, '');
+        try {
+          videos = await InstagramScraperService.scrapeProfile(cleanUser);
+        } catch (scraperErr: any) {
+          logger.warn(`Custom scraper also failed for @${cleanUser}, falling back to Apify`);
+          videos = await ApifyService.getInstagramReels(cleanUser);
+        }
       }
 
       if (videos.length === 0) continue;
