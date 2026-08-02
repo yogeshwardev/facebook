@@ -81,6 +81,32 @@ export class InstagramScraperService {
       logger.warn(`[Scraper] Mobile API failed for @${clean}: ${err.message}`);
     }
 
+    await randomDelay(1000, 2000);
+
+    // Strategy 5: Instagram Embed API (bypasses datacenter IP blocks)
+    try {
+      const posts = await this.scrapeEmbedProfile(clean, limit);
+      if (posts.length > 0) {
+        logger.info(`[Scraper] Embed scraping returned ${posts.length} posts for @${clean}`);
+        return posts;
+      }
+    } catch (err: any) {
+      logger.warn(`[Scraper] Embed scraping failed for @${clean}: ${err.message}`);
+    }
+
+    await randomDelay(1000, 2000);
+
+    // Strategy 6: Public Proxy Relay (bypasses AWS IP blocks)
+    try {
+      const posts = await this.scrapeProxyApi(clean, limit);
+      if (posts.length > 0) {
+        logger.info(`[Scraper] Proxy relay returned ${posts.length} posts for @${clean}`);
+        return posts;
+      }
+    } catch (err: any) {
+      logger.warn(`[Scraper] Proxy relay failed for @${clean}: ${err.message}`);
+    }
+
     logger.warn(`[Scraper] All strategies failed for @${clean}`);
     return [];
   }
@@ -110,6 +136,107 @@ export class InstagramScraperService {
     this.extractFromEdges(user.edge_owner_to_timeline_media?.edges, posts, limit);
     this.extractFromEdges(user.edge_felix_video_timeline?.edges, posts, limit);
     return posts.slice(0, limit);
+  }
+
+  /**
+   * Strategy 5: Embed endpoint scraping (Instagram embed endpoint is unblocked for cloud IPs).
+   */
+  private static async scrapeEmbedProfile(username: string, limit: number): Promise<ScrapedPost[]> {
+    const response = await fetchWithGotScraping({
+      url: `https://www.instagram.com/${username}/embed/captioned/`,
+      headerGeneratorOptions: {
+        browsers: [{ name: 'chrome', minVersion: 120 }],
+        devices: ['desktop'],
+        operatingSystems: ['windows'],
+      },
+    });
+
+    const html = response.body;
+    const posts: ScrapedPost[] = [];
+
+    const shortcodeMatches = html.matchAll(/\/(?:p|reel)\/([A-Za-z0-9_-]+)\//g);
+    const shortcodes = new Set<string>();
+
+    for (const match of shortcodeMatches) {
+      if (match[1]) shortcodes.add(match[1]);
+      if (shortcodes.size >= limit) break;
+    }
+
+    for (const code of Array.from(shortcodes)) {
+      try {
+        await randomDelay(300, 700);
+        const postData = await this.fetchEmbedPostDetails(code);
+        if (postData) posts.push(postData);
+      } catch { continue; }
+    }
+
+    return posts;
+  }
+
+  private static async fetchEmbedPostDetails(code: string): Promise<ScrapedPost | null> {
+    const response = await fetchWithGotScraping({
+      url: `https://www.instagram.com/p/${code}/embed/captioned/`,
+      headerGeneratorOptions: {
+        browsers: [{ name: 'chrome', minVersion: 120 }],
+        devices: ['desktop'],
+        operatingSystems: ['windows'],
+      },
+    });
+
+    const html = response.body;
+
+    const videoMatch = html.match(/"video_url":"([^"]+)"/) || html.match(/video_url\s*=\s*['"]([^'"]+)['"]/);
+    const imageMatch = html.match(/class="EmbeddedMediaImage"[^>]*src="([^"]+)"/) || html.match(/"display_url":"([^"]+)"/);
+    const captionMatch = html.match(/class="CaptionText"[^>]*>([\s\S]*?)<\/div>/);
+
+    const videoUrl = videoMatch ? videoMatch[1].replace(/\\u0026/g, '&') : null;
+    const imageUrl = imageMatch ? imageMatch[1].replace(/\\u0026/g, '&') : null;
+    const mediaUrl = videoUrl || imageUrl;
+
+    if (!mediaUrl) return null;
+
+    const caption = captionMatch 
+      ? captionMatch[1].replace(/<[^>]+>/g, '').trim()
+      : '';
+
+    return {
+      id: code,
+      media_type: videoUrl ? 'VIDEO' : 'IMAGE',
+      media_url: mediaUrl,
+      caption,
+      timestamp: new Date().toISOString(),
+      thumbnailUrl: imageUrl || undefined,
+    };
+  }
+
+  /**
+   * Strategy 6: Public Proxy Relay (bypasses AWS IP bans completely)
+   */
+  private static async scrapeProxyApi(username: string, limit: number): Promise<ScrapedPost[]> {
+    const proxies = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`)}`,
+      `https://corsproxy.io/?${encodeURIComponent(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`)}`
+    ];
+
+    for (const proxyUrl of proxies) {
+      try {
+        const response = await fetchWithGotScraping({
+          url: proxyUrl,
+          headers: {
+            'X-IG-App-ID': IG_APP_ID,
+          }
+        });
+        const json = JSON.parse(response.body);
+        const user = json?.data?.user;
+        if (user) {
+          const posts: ScrapedPost[] = [];
+          this.extractFromEdges(user.edge_owner_to_timeline_media?.edges, posts, limit);
+          this.extractFromEdges(user.edge_felix_video_timeline?.edges, posts, limit);
+          if (posts.length > 0) return posts.slice(0, limit);
+        }
+      } catch { continue; }
+    }
+    return [];
   }
 
   /**
