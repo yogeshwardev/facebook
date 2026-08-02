@@ -124,7 +124,7 @@ export class InstagramScraperService {
 
     // Method 3: Search all JSON script tags for media data
     if (posts.length === 0) {
-      const scriptMatches = html.matchAll(/<script[^>]*type="application\/json"[^>]*>({.+?})<\/script>/gs);
+      const scriptMatches = html.matchAll(/<script[^>]*>({.*?"(?:edge_owner_to_timeline_media|xdt_api|video_versions|display_url)".*?})<\/script>/gs);
       for (const match of scriptMatches) {
         try {
           const json = JSON.parse(match[1]);
@@ -132,6 +132,29 @@ export class InstagramScraperService {
           if (posts.length > 0) break;
         } catch { continue; }
       }
+    }
+
+    // Method 4: Try /reels/ page if main profile page yielded no posts
+    if (posts.length === 0) {
+      try {
+        const reelsResponse = await fetchWithGotScraping({
+          url: `https://www.instagram.com/${username}/reels/`,
+          headerGeneratorOptions: {
+            browsers: [{ name: 'chrome', minVersion: 120 }],
+            devices: ['desktop'],
+            operatingSystems: ['windows'],
+          },
+        });
+        const reelsHtml = reelsResponse.body;
+        const reelsScriptMatches = reelsHtml.matchAll(/<script[^>]*>({.*?"(?:edge_owner_to_timeline_media|xdt_api|video_versions|display_url)".*?})<\/script>/gs);
+        for (const match of reelsScriptMatches) {
+          try {
+            const json = JSON.parse(match[1]);
+            this.deepExtractVideos(json, posts, limit, 0);
+            if (posts.length > 0) break;
+          } catch { continue; }
+        }
+      } catch { /* ignore reels page errors */ }
     }
 
     return posts.slice(0, limit);
