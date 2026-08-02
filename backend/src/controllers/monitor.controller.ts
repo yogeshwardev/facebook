@@ -159,8 +159,18 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       try {
         videos = await InstagramScraperService.scrapeProfile(cleanUser);
       } catch (scraperErr: any) {
-        logger.warn(`Custom scraper also failed for @${cleanUser}, falling back to Apify`);
-        videos = await ApifyService.getInstagramReels(cleanUser);
+        logger.warn(`Custom scraper failed for @${cleanUser}, trying Apify...`);
+        try {
+          videos = await ApifyService.getInstagramReels(cleanUser);
+        } catch (apifyErr: any) {
+          logger.error(`All scrapers failed for @${cleanUser}: ${apifyErr.message}`);
+          // Return empty feed with a message instead of crashing
+          return res.json({
+            success: true,
+            data: { feed: [] },
+            message: 'Could not fetch reels. The account may be private, or scraping credits are exhausted. Please try again later.'
+          });
+        }
       }
     }
 

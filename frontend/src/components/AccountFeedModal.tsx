@@ -20,6 +20,7 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
   const [feed, setFeed] = useState<FeedMedia[]>([]);
   const [loading, setLoading] = useState(true);
   const [repostingId, setRepostingId] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string>('');
 
   useEffect(() => {
     fetchFeed();
@@ -30,10 +31,12 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
       const res = await api.get(`/monitor/${accountId}/feed`);
       if (res.data.success) {
         setFeed(res.data.data.feed);
+        if (res.data.message) {
+          setStatusMessage(res.data.message);
+        }
       }
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Failed to fetch feed');
-      onClose();
+      setStatusMessage(err.response?.data?.message || 'Failed to fetch feed');
     } finally {
       setLoading(false);
     }
@@ -87,7 +90,7 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
           <div style={{ textAlign: 'center', padding: '3rem' }}>Loading feed...</div>
         ) : feed.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-            No recent reels found on this account.
+            {statusMessage || 'No recent reels found on this account.'}
           </div>
         ) : (
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
