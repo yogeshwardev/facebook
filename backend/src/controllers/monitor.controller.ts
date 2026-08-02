@@ -165,8 +165,9 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
     }
 
     // Attach sync status
+    const videoIds = videos.map((v: any) => v.id || v.shortcode).filter(Boolean);
     const syncedMedia = await prisma.media.findMany({
-      where: { sourceMediaId: { in: videos.map((v: any) => v.id) } },
+      where: { sourceMediaId: { in: videoIds } },
       select: { sourceMediaId: true }
     });
     
