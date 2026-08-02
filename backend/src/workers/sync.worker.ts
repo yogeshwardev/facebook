@@ -36,22 +36,22 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
       
       const decryptedToken = decrypt(igAccount.accessToken);
 
-      logger.info(`Checking target @${account.targetUsername} for user ${account.userId}`);
+      const cleanUser = account.targetUsername.replace(/^@+/, '');
+      logger.info(`Checking target @${cleanUser} for user ${account.userId}`);
 
       let videos: any[] = [];
       
       try {
         const res = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
           params: {
-            fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
+            fields: `business_discovery.username(${cleanUser}){media{id,media_type,media_url,caption,timestamp}}`,
             access_token: decryptedToken
           }
         });
         const mediaList = res.data?.business_discovery?.media?.data || [];
-        videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
+        videos = mediaList;
       } catch (err: any) {
-        logger.info(`Official API failed for @${account.targetUsername}, using custom scraper...`);
-        const cleanUser = account.targetUsername.replace(/^@+/, '');
+        logger.info(`Official API failed for @${cleanUser}, using custom scraper...`);
         try {
           videos = await InstagramScraperService.scrapeProfile(cleanUser);
         } catch (scraperErr: any) {

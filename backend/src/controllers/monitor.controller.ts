@@ -143,7 +143,7 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       try {
         const igRes = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
           params: {
-            fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
+            fields: `business_discovery.username(${cleanUser}){media{id,media_type,media_url,caption,timestamp}}`,
             access_token: decryptedToken
           }
         });
