@@ -167,5 +167,23 @@ model MonitoredAccount {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  posts           InstagramPostMetadata[]
+
   @@unique([userId, targetUsername])
+}
+
+model InstagramPostMetadata {
+  id                 String           @id @default(uuid())
+  monitoredAccountId String
+  monitoredAccount   MonitoredAccount @relation(fields: [monitoredAccountId], references: [id], onDelete: Cascade)
+  shortcode          String           @unique
+  postUrl            String
+  caption            String?
+  thumbnailUrl       String?
+  mediaType          String
+  publishedAt        DateTime?
+  createdAt          DateTime         @default(now())
+
+  @@index([shortcode])
+  @@index([monitoredAccountId])
 }
