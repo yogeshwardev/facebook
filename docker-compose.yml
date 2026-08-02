@@ -6,6 +6,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
       POSTGRES_DB: scheduler
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: always
@@ -13,6 +15,8 @@ services:
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
     restart: always
