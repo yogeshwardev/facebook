@@ -1,5 +1,9 @@
-import { gotScraping } from 'got-scraping';
 import { logger } from '../utils/logger';
+
+async function fetchWithGotScraping(options: any) {
+  const { gotScraping } = await (eval('import("got-scraping")') as Promise<any>);
+  return gotScraping(options);
+}
 
 interface ScrapedPost {
   id: string;
@@ -73,7 +77,7 @@ export class InstagramScraperService {
    * Instagram embeds post data inside <script> tags on the profile page.
    */
   private static async scrapeProfilePage(username: string, limit: number): Promise<ScrapedPost[]> {
-    const response = await gotScraping({
+    const response = await fetchWithGotScraping({
       url: `https://www.instagram.com/${username}/`,
       headerGeneratorOptions: {
         browsers: [{ name: 'chrome', minVersion: 120 }],
@@ -137,7 +141,7 @@ export class InstagramScraperService {
    * Strategy 2: Hit Instagram's web profile info API with Chrome TLS fingerprint.
    */
   private static async scrapeWebApi(username: string, limit: number): Promise<ScrapedPost[]> {
-    const response = await gotScraping({
+    const response = await fetchWithGotScraping({
       url: `https://www.instagram.com/api/v1/users/web_profile_info/?username=${username}`,
       headerGeneratorOptions: {
         browsers: [{ name: 'chrome', minVersion: 120 }],
@@ -201,7 +205,7 @@ export class InstagramScraperService {
     for (const docId of docIds) {
       if (posts.length > 0) break;
       try {
-        const response = await gotScraping({
+        const response = await fetchWithGotScraping({
           url: `https://www.instagram.com/graphql/query/?query_hash=${docId}&variables=${encodeURIComponent(variables)}`,
           headerGeneratorOptions: {
             browsers: [{ name: 'chrome', minVersion: 120 }],
@@ -229,7 +233,7 @@ export class InstagramScraperService {
    */
   private static async getUserId(username: string): Promise<string | null> {
     try {
-      const response = await gotScraping({
+      const response = await fetchWithGotScraping({
         url: `https://www.instagram.com/${username}/`,
         headerGeneratorOptions: {
           browsers: [{ name: 'chrome', minVersion: 120 }],
@@ -262,7 +266,7 @@ export class InstagramScraperService {
    */
   private static async fetchVideoUrlByShortcode(shortcode: string): Promise<string | null> {
     try {
-      const response = await gotScraping({
+      const response = await fetchWithGotScraping({
         url: `https://www.instagram.com/p/${shortcode}/?__a=1&__d=dis`,
         headerGeneratorOptions: {
           browsers: [{ name: 'chrome', minVersion: 120 }],
