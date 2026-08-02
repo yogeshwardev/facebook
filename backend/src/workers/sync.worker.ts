@@ -7,7 +7,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { storageProvider } from '../services/storage';
 import { decrypt } from '../utils/crypto';
-import { ApifyService } from '../services/apify.service';
 import { InstagramScraperService } from '../services/instagram-scraper.service';
 
 const prisma = new PrismaClient();
