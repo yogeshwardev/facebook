@@ -154,23 +154,17 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       const mediaList = igRes.data?.business_discovery?.media?.data || [];
       videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
     } catch (err: any) {
-      logger.info(`Official API failed for @${account.targetUsername}, trying custom scraper...`);
+      logger.info(`Official API failed for @${account.targetUsername}, using custom scraper...`);
       const cleanUser = account.targetUsername.replace(/^@+/, '');
       try {
         videos = await InstagramScraperService.scrapeProfile(cleanUser);
       } catch (scraperErr: any) {
-        logger.warn(`Custom scraper failed for @${cleanUser}, trying Apify...`);
-        try {
-          videos = await ApifyService.getInstagramReels(cleanUser);
-        } catch (apifyErr: any) {
-          logger.error(`All scrapers failed for @${cleanUser}: ${apifyErr.message}`);
-          // Return empty feed with a message instead of crashing
-          return res.json({
-            success: true,
-            data: { feed: [] },
-            message: 'Could not fetch reels. The account may be private, or scraping credits are exhausted. Please try again later.'
-          });
-        }
+        logger.error(`Scraper failed for @${cleanUser}: ${scraperErr.message}`);
+        return res.json({
+          success: true,
+          data: { feed: [] },
+          message: 'Could not fetch reels. The account may be private or temporarily unavailable.'
+        });
       }
     }
 
