@@ -172,10 +172,17 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
     
     const syncedIds = new Set(syncedMedia.map(m => m.sourceMediaId));
 
-    const feed = videos.map((v: any) => ({
-      ...v,
-      isSynced: syncedIds.has(v.id)
-    }));
+    const feed = videos.map((v: any) => {
+      const mediaId = v.shortcode || v.id || `item_${Math.random()}`;
+      return {
+        id: mediaId,
+        media_type: v.mediaType || v.media_type || 'VIDEO',
+        media_url: v.media_url || v.thumbnailUrl || v.thumbnail_url || 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&q=80',
+        caption: v.caption || `Recent reel from @${cleanUser}`,
+        timestamp: v.timestamp || (v.publishedAt ? new Date(v.publishedAt).toISOString() : new Date().toISOString()),
+        isSynced: syncedIds.has(mediaId)
+      };
+    });
 
     res.json({ success: true, data: { feed } });
   } catch (err: any) {
