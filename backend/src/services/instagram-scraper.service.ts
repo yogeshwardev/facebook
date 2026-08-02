@@ -288,7 +288,7 @@ export class InstagramScraperService {
   }
 
   /**
-   * Extract video posts from Instagram edge arrays (GraphQL format).
+   * Extract posts (videos, images, carousels) from Instagram edge arrays (GraphQL format).
    */
   private static extractFromEdges(edges: any[] | undefined, posts: ScrapedPost[], limit: number): void {
     if (!edges || !Array.isArray(edges)) return;
@@ -298,17 +298,23 @@ export class InstagramScraperService {
       const node = edge?.node || edge;
       if (!node) continue;
 
-      const isVideo = node.is_video || node.media_type === 2 || node.product_type === 'clips';
-      if (!isVideo) continue;
+      const isVideo = Boolean(node.is_video || node.media_type === 2 || node.product_type === 'clips');
+      const mediaType = isVideo ? 'VIDEO' : (node.is_carousel || node.media_type === 8 ? 'CAROUSEL_ALBUM' : 'IMAGE');
+      
+      const mediaUrl = isVideo 
+        ? (node.video_url || node.video_versions?.[0]?.url || '')
+        : (node.display_url || node.display_resources?.slice(-1)[0]?.src || node.thumbnail_src || node.image_versions2?.candidates?.[0]?.url || '');
 
       const id = node.id || String(node.pk) || node.shortcode;
+      if (!id) continue;
+
       // Skip duplicates
       if (posts.find(p => p.id === id)) continue;
 
       posts.push({
         id,
-        media_type: 'VIDEO',
-        media_url: node.video_url || node.video_versions?.[0]?.url || '',
+        media_type: mediaType,
+        media_url: mediaUrl,
         caption:
           node.edge_media_to_caption?.edges?.[0]?.node?.text ||
           node.caption?.text ||
@@ -325,7 +331,7 @@ export class InstagramScraperService {
   }
 
   /**
-   * Recursively search a JSON object for video post data.
+   * Recursively search a JSON object for post data.
    */
   private static deepExtractVideos(json: any, posts: ScrapedPost[], limit: number, depth: number): void {
     if (depth > 6 || !json || typeof json !== 'object' || posts.length >= limit) return;
@@ -348,22 +354,27 @@ export class InstagramScraperService {
     if (Array.isArray(json.items)) {
       for (const item of json.items) {
         if (posts.length >= limit) return;
-        if (item.media_type !== 2 && item.product_type !== 'clips') continue;
-        const videoUrl = item.video_versions?.[0]?.url || item.video_url || '';
-        if (!videoUrl) continue;
+        
+        const isVideo = item.media_type === 2 || item.product_type === 'clips';
+        const mediaType = isVideo ? 'VIDEO' : (item.media_type === 8 ? 'CAROUSEL_ALBUM' : 'IMAGE');
+        const mediaUrl = isVideo
+          ? (item.video_versions?.[0]?.url || item.video_url || '')
+          : (item.image_versions2?.candidates?.[0]?.url || item.display_url || '');
+
+        if (!mediaUrl) continue;
 
         const id = item.id || String(item.pk);
         if (posts.find(p => p.id === id)) continue;
 
         posts.push({
           id,
-          media_type: 'VIDEO',
-          media_url: videoUrl,
+          media_type: mediaType,
+          media_url: mediaUrl,
           caption: item.caption?.text || '',
           timestamp: item.taken_at
             ? new Date(item.taken_at * 1000).toISOString()
             : new Date().toISOString(),
-          thumbnailUrl: item.image_versions2?.candidates?.[0]?.url,
+          thumbnailUrl: item.image_versions2?.candidates?.[0]?.url || item.display_url,
         });
       }
       if (posts.length > 0) return;
