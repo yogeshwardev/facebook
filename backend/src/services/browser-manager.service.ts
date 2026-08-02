@@ -55,6 +55,18 @@ export class BrowserManager {
 
     const context = await browser.newContext(contextOptions);
 
+    if (process.env.INSTAGRAM_SESSION_ID) {
+      await context.addCookies([{
+        name: 'sessionid',
+        value: process.env.INSTAGRAM_SESSION_ID.trim(),
+        domain: '.instagram.com',
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+      }]);
+    }
+
     // Abort image and media binary downloads to save memory & bandwidth
     await context.route('**/*', (route: Route) => {
       const resourceType = route.request().resourceType();

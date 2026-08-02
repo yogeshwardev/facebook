@@ -108,10 +108,67 @@ export class InstagramScraperService {
         return results;
       }, { user: cleanUser, maxLimit: limit });
 
-      return rawPosts.map((p: any) => ({
+      let posts = rawPosts.map((p: any) => ({
         ...p,
         publishedAt: p.publishedAtStr ? new Date(p.publishedAtStr) : new Date(),
       }));
+
+      // Fallback Strategy: Playwright Embed Page DOM Evaluation
+      if (posts.length === 0) {
+        const embedUrl = `https://www.instagram.com/${cleanUser}/embed/captioned/`;
+        logger.info(`[Playwright Scraper] Fallback: Navigating to ${embedUrl}...`);
+        await page.goto(embedUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {});
+
+        const embedPosts = await page.evaluate(({ user, maxLimit }: { user: string; maxLimit: number }) => {
+          const anchors = Array.from(document.querySelectorAll('a[href*="/p/"], a[href*="/reel/"]'));
+          const uniqueLinks = new Map<string, Element>();
+
+          for (const anchor of anchors) {
+            const href = anchor.getAttribute('href');
+            if (href && !uniqueLinks.has(href)) {
+              uniqueLinks.set(href, anchor);
+            }
+            if (uniqueLinks.size >= maxLimit) break;
+          }
+
+          const results: Array<{
+            username: string;
+            postUrl: string;
+            shortcode: string;
+            caption: string;
+            thumbnailUrl: string;
+            mediaType: 'POST' | 'REEL' | 'CAROUSEL';
+          }> = [];
+
+          uniqueLinks.forEach((anchor, href) => {
+            const isReel = href.includes('/reel/');
+            const shortcodeMatch = href.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/);
+            const shortcode = shortcodeMatch ? shortcodeMatch[1] : '';
+
+            if (!shortcode) return;
+
+            const img = anchor.querySelector('img');
+            const thumbnailUrl = img ? img.getAttribute('src') || '' : '';
+            const captionEl = document.querySelector('.CaptionText');
+            const caption = captionEl ? captionEl.textContent || '' : (img ? img.getAttribute('alt') || '' : '');
+
+            results.push({
+              username: user,
+              postUrl: `https://www.instagram.com${href}`,
+              shortcode,
+              caption,
+              thumbnailUrl,
+              mediaType: isReel ? 'REEL' : 'POST',
+            });
+          });
+
+          return results;
+        }, { user: cleanUser, maxLimit: limit });
+
+        posts = embedPosts.map(p => ({ ...p, publishedAt: new Date() }));
+      }
+
+      return posts;
     } catch (error: any) {
       logger.error(`Error scraping @${cleanUser}: ${error.message}`);
       throw error;
