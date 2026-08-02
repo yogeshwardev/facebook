@@ -96,12 +96,20 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
           <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
             {feed.map(media => (
               <div key={media.id} className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                <video 
-                  src={media.media_url} 
-                  style={{ width: '100%', aspectRatio: '9/16', objectFit: 'contain', backgroundColor: '#000' }} 
-                  controls 
-                  preload="metadata"
-                />
+                {media.media_type === 'VIDEO' ? (
+                  <video 
+                    src={media.media_url} 
+                    style={{ width: '100%', aspectRatio: '9/16', objectFit: 'contain', backgroundColor: '#000' }} 
+                    controls 
+                    preload="metadata"
+                  />
+                ) : (
+                  <img 
+                    src={media.media_url} 
+                    alt={media.caption || 'Instagram Post'}
+                    style={{ width: '100%', aspectRatio: '9/16', objectFit: 'cover', backgroundColor: '#000' }}
+                  />
+                )}
                 <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1 }}>
                   <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
                     {formatDate(media.timestamp)}
