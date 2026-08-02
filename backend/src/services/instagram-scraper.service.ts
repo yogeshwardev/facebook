@@ -61,15 +61,55 @@ export class InstagramScraperService {
     try {
       const posts = await this.scrapeGraphQL(clean, limit);
       if (posts.length > 0) {
-        logger.info(`[Scraper] GraphQL returned ${posts.length} videos for @${clean}`);
+        logger.info(`[Scraper] GraphQL returned ${posts.length} posts for @${clean}`);
         return posts;
       }
     } catch (err: any) {
       logger.warn(`[Scraper] GraphQL failed for @${clean}: ${err.message}`);
     }
 
+    await randomDelay(1500, 3000);
+
+    // Strategy 4: i.instagram.com Mobile API
+    try {
+      const posts = await this.scrapeMobileApi(clean, limit);
+      if (posts.length > 0) {
+        logger.info(`[Scraper] Mobile API returned ${posts.length} posts for @${clean}`);
+        return posts;
+      }
+    } catch (err: any) {
+      logger.warn(`[Scraper] Mobile API failed for @${clean}: ${err.message}`);
+    }
+
     logger.warn(`[Scraper] All strategies failed for @${clean}`);
     return [];
+  }
+
+  /**
+   * Strategy 4: Hit Instagram's mobile API (i.instagram.com) with Android headers.
+   */
+  private static async scrapeMobileApi(username: string, limit: number): Promise<ScrapedPost[]> {
+    const response = await fetchWithGotScraping({
+      url: `https://i.instagram.com/api/v1/users/web_profile_info/?username=${username}`,
+      headerGeneratorOptions: {
+        browsers: [{ name: 'chrome', minVersion: 120 }],
+        devices: ['mobile'],
+        operatingSystems: ['android'],
+      },
+      headers: {
+        'X-IG-App-ID': '936619743392459',
+        'User-Agent': 'Instagram 317.0.0.34.109 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100; en_US; 562425185)',
+      },
+    });
+
+    const json = JSON.parse(response.body);
+    const user = json?.data?.user;
+    if (!user) return [];
+
+    const posts: ScrapedPost[] = [];
+    this.extractFromEdges(user.edge_owner_to_timeline_media?.edges, posts, limit);
+    this.extractFromEdges(user.edge_felix_video_timeline?.edges, posts, limit);
+    return posts.slice(0, limit);
   }
 
   /**
