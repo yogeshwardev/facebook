@@ -13,6 +13,8 @@ interface FeedMedia {
   media_url: string;
   caption: string;
   timestamp: string;
+  thumbnail_url?: string;
+  permalink?: string;
   isSynced: boolean;
 }
 
@@ -63,9 +65,59 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('en-US', {
-      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
-    });
+    try {
+      return new Date(dateString).toLocaleString('en-US', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+      });
+    } catch {
+      return 'Unknown date';
+    }
+  };
+
+  const getMediaTypeLabel = (type: string) => {
+    switch (type) {
+      case 'VIDEO': return '🎬 Reel';
+      case 'CAROUSEL_ALBUM': return '📸 Carousel';
+      case 'IMAGE': return '🖼️ Photo';
+      default: return '📄 Post';
+    }
+  };
+
+  const renderMedia = (media: FeedMedia) => {
+    const url = media.media_url || media.thumbnail_url || '';
+    if (!url) {
+      return (
+        <div style={{
+          width: '100%', aspectRatio: '1', backgroundColor: '#1a1a2e',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#666', fontSize: '0.9rem'
+        }}>
+          No preview available
+        </div>
+      );
+    }
+
+    if (media.media_type === 'VIDEO') {
+      return (
+        <video
+          src={url}
+          style={{ width: '100%', aspectRatio: '9/16', objectFit: 'contain', backgroundColor: '#000' }}
+          controls
+          preload="metadata"
+        />
+      );
+    }
+
+    return (
+      <img
+        src={url}
+        alt={media.caption || 'Instagram Post'}
+        style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', backgroundColor: '#000' }}
+        onError={(e) => {
+          (e.target as HTMLImageElement).style.display = 'none';
+        }}
+      />
+    );
   };
 
   return (
@@ -82,7 +134,7 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
         display: 'flex', flexDirection: 'column'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h2>@{targetUsername}'s Recent Reels</h2>
+          <h2>@{targetUsername}'s Recent Posts</h2>
           <button className="btn" onClick={onClose} style={{ padding: '0.5rem 1rem' }}>Close</button>
         </div>
 
@@ -90,50 +142,50 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
           <div style={{ textAlign: 'center', padding: '3rem' }}>Loading feed...</div>
         ) : feed.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-            {statusMessage || 'No recent reels found on this account.'}
+            {statusMessage || 'No recent posts found on this account.'}
           </div>
         ) : (
-          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
-            {feed.map(media => (
-              <div key={media.id} className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                {media.media_type === 'VIDEO' ? (
-                  <video 
-                    src={media.media_url} 
-                    style={{ width: '100%', aspectRatio: '9/16', objectFit: 'contain', backgroundColor: '#000' }} 
-                    controls 
-                    preload="metadata"
-                  />
-                ) : (
-                  <img 
-                    src={media.media_url} 
-                    alt={media.caption || 'Instagram Post'}
-                    style={{ width: '100%', aspectRatio: '9/16', objectFit: 'cover', backgroundColor: '#000' }}
-                  />
-                )}
-                <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
-                    {formatDate(media.timestamp)}
-                  </div>
-                  <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
-                    {media.caption || 'No caption'}
-                  </p>
-                  
-                  <button 
-                    className="btn btn-primary" 
-                    style={{ width: '100%', backgroundColor: media.isSynced ? '#4ade80' : undefined }}
-                    onClick={() => handleRepost(media)}
-                    disabled={media.isSynced || repostingId === media.id}
-                  >
-                    {repostingId === media.id 
-                      ? 'Downloading...' 
-                      : media.isSynced 
-                        ? '✅ Already Reposted' 
-                        : 'Repost to My Page'}
-                  </button>
-                </div>
+          <>
+            {statusMessage && (
+              <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                {statusMessage}
               </div>
-            ))}
-          </div>
+            )}
+            <div style={{ marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Found {feed.length} posts ({feed.filter(f => f.media_type === 'VIDEO').length} reels, {feed.filter(f => f.media_type === 'IMAGE').length} photos, {feed.filter(f => f.media_type === 'CAROUSEL_ALBUM').length} carousels)
+            </div>
+            <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1.5rem' }}>
+              {feed.map(media => (
+                <div key={media.id} className="card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  {renderMedia(media)}
+                  <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
+                      <span>{getMediaTypeLabel(media.media_type)}</span>
+                      <span>{formatDate(media.timestamp)}</span>
+                    </div>
+                    <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                      {media.caption || 'No caption'}
+                    </p>
+                    
+                    {media.media_type === 'VIDEO' && (
+                      <button 
+                        className="btn btn-primary" 
+                        style={{ width: '100%', backgroundColor: media.isSynced ? '#4ade80' : undefined }}
+                        onClick={() => handleRepost(media)}
+                        disabled={media.isSynced || repostingId === media.id}
+                      >
+                        {repostingId === media.id 
+                          ? 'Downloading...' 
+                          : media.isSynced 
+                            ? '✅ Already Reposted' 
+                            : 'Repost to My Page'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

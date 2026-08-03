@@ -138,55 +138,66 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
     let videos: any[] = [];
     const cleanUser = account.targetUsername.replace(/^@+/, '');
 
+    // Strategy 1: Try Meta Graph API business_discovery (if user has connected IG account)
     if (igAccount) {
       const decryptedToken = decrypt(igAccount.accessToken);
       try {
+        logger.info(`[Feed] Trying Meta Graph API for @${cleanUser} via connected account ${igAccount.instagramId}`);
         const igRes = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
           params: {
-            fields: `business_discovery.username(${cleanUser}){media{id,media_type,media_url,caption,timestamp}}`,
+            fields: `business_discovery.username(${cleanUser}){media{id,media_type,media_url,caption,timestamp,thumbnail_url,permalink}}`,
             access_token: decryptedToken
           }
         });
         const mediaList = igRes.data?.business_discovery?.media?.data || [];
-        // Keep all media types (reels, photos, carousels)
+        logger.info(`[Feed] Meta Graph API returned ${mediaList.length} items for @${cleanUser}`);
         videos = mediaList;
       } catch (err: any) {
-        logger.info(`Official API failed for @${account.targetUsername}, using custom scraper...`);
-        videos = await InstagramScraperService.scrapeProfile(cleanUser);
+        const errMsg = err.response?.data?.error?.message || err.message;
+        logger.warn(`[Feed] Meta Graph API failed for @${cleanUser}: ${errMsg}`);
       }
-    } else {
-      logger.info(`No connected Instagram account found, using custom scraper for @${cleanUser}...`);
+    }
+
+    // Strategy 2: If Graph API returned nothing, use got-scraping based scraper
+    if (videos.length === 0) {
+      logger.info(`[Feed] Falling back to got-scraping scraper for @${cleanUser}`);
       try {
         videos = await InstagramScraperService.scrapeProfile(cleanUser);
+        logger.info(`[Feed] Scraper returned ${videos.length} items for @${cleanUser}`);
       } catch (scraperErr: any) {
-        logger.error(`Scraper failed for @${cleanUser}: ${scraperErr.message}`);
-        videos = [];
+        logger.error(`[Feed] Scraper also failed for @${cleanUser}: ${scraperErr.message}`);
       }
     }
 
     // Attach sync status
-    const videoIds = videos.map((v: any) => v.id || v.shortcode).filter(Boolean);
-    const syncedMedia = await prisma.media.findMany({
-      where: { sourceMediaId: { in: videoIds } },
-      select: { sourceMediaId: true }
-    });
-    
-    const syncedIds = new Set(syncedMedia.map(m => m.sourceMediaId));
+    const videoIds = videos.map((v: any) => v.id).filter(Boolean);
+    let syncedIds = new Set<string>();
+    if (videoIds.length > 0) {
+      const syncedMedia = await prisma.media.findMany({
+        where: { sourceMediaId: { in: videoIds } },
+        select: { sourceMediaId: true }
+      });
+      syncedIds = new Set(syncedMedia.map(m => m.sourceMediaId).filter((id): id is string => id !== null));
+    }
 
-    const feed = videos.map((v: any) => {
-      const mediaId = v.shortcode || v.id || `item_${Math.random()}`;
-      return {
-        id: mediaId,
-        media_type: v.mediaType || v.media_type || 'VIDEO',
-        media_url: v.media_url || v.thumbnailUrl || v.thumbnail_url || 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=500&q=80',
-        caption: v.caption || `Recent reel from @${cleanUser}`,
-        timestamp: v.timestamp || (v.publishedAt ? new Date(v.publishedAt).toISOString() : new Date().toISOString()),
-        isSynced: syncedIds.has(mediaId)
-      };
-    });
+    const feed = videos.map((v: any) => ({
+      id: v.id || v.shortcode || `item_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      media_type: v.media_type || 'IMAGE',
+      media_url: v.media_url || v.thumbnail_url || '',
+      caption: v.caption || '',
+      timestamp: v.timestamp || new Date().toISOString(),
+      thumbnail_url: v.thumbnail_url || v.media_url || '',
+      permalink: v.permalink || '',
+      isSynced: syncedIds.has(v.id)
+    }));
 
-    res.json({ success: true, data: { feed } });
+    res.json({
+      success: true,
+      message: feed.length === 0 ? `Could not fetch posts for @${cleanUser}. The account may be private or Instagram may be blocking requests from this server.` : undefined,
+      data: { feed }
+    });
   } catch (err: any) {
+    logger.error(`[Feed] Unhandled error: ${err.message}`);
     if (err.isAxiosError && err.response?.data?.error?.message) {
       return res.status(400).json({ success: false, message: `Instagram API Error: ${err.response.data.error.message}` });
     }
