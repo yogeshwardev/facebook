@@ -163,7 +163,19 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       }
     }
 
-    // Strategy 2: If Graph API returned nothing, use configured Apify actor for public profiles.
+    // Strategy 2: Try Instagram's public web profile JSON.
+    if (mediaItems.length === 0) {
+      sourcesTried.push('Instagram Public Web');
+      logger.info(`[Feed] Falling back to public web profile JSON for @${cleanUser}`);
+      try {
+        mediaItems = await InstagramScraperService.scrapePublicWebProfile(cleanUser, limit);
+        logger.info(`[Feed] Public web profile returned ${mediaItems.length} items for @${cleanUser}`);
+      } catch (webErr: any) {
+        logger.warn(`[Feed] Public web profile failed for @${cleanUser}: ${webErr.message}`);
+      }
+    }
+
+    // Strategy 3: If direct methods returned nothing, use configured Apify actor for public profiles.
     if (mediaItems.length === 0 && InstagramScraperService.isConfigured()) {
       sourcesTried.push('Apify Instagram Scraper');
       logger.info(`[Feed] Falling back to Apify scraper for @${cleanUser}`);
@@ -200,7 +212,7 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
 
     res.json({
       success: true,
-      message: feed.length === 0 ? `Could not fetch public posts for @${cleanUser}. Connect an eligible Meta Business/Creator account or configure APIFY_TOKEN for public profile imports.` : undefined,
+      message: feed.length === 0 ? `Could not fetch public posts for @${cleanUser}. Instagram may be blocking the public web request from this server; configure APIFY_TOKEN for the managed scraper path.` : undefined,
       data: { feed, sourcesTried }
     });
   } catch (err: any) {

@@ -1,7 +1,8 @@
 import { ApifyClient } from 'apify-client';
+import axios from 'axios';
 import { logger } from '../utils/logger';
 
-export type InstagramProvider = 'meta' | 'apify';
+export type InstagramProvider = 'meta' | 'web' | 'apify';
 
 export interface ScrapedMedia {
   id: string;
@@ -16,8 +17,60 @@ export interface ScrapedMedia {
 }
 
 export class InstagramScraperService {
+  private static readonly WEB_APP_ID = '936619743392459';
+
   public static isConfigured(): boolean {
     return Boolean(process.env.APIFY_TOKEN);
+  }
+
+  public static async scrapePublicWebProfile(username: string, limit = 24): Promise<ScrapedMedia[]> {
+    const cleanUser = InstagramScraperService.cleanUsername(username);
+    const headers = InstagramScraperService.webHeaders(cleanUser);
+    const attempts = [
+      {
+        label: 'web_profile_info',
+        url: 'https://www.instagram.com/api/v1/users/web_profile_info/',
+        params: { username: cleanUser },
+      },
+      {
+        label: '__a profile JSON',
+        url: `https://www.instagram.com/${cleanUser}/`,
+        params: { __a: 1, __d: 'dis' },
+      },
+    ];
+
+    let lastError: Error | null = null;
+    for (const attempt of attempts) {
+      try {
+        logger.info(`[Web] Loading Instagram ${attempt.label} for @${cleanUser}`);
+        const response = await axios.get(attempt.url, {
+          params: attempt.params,
+          timeout: 20000,
+          headers,
+          validateStatus: status => status >= 200 && status < 500,
+        });
+
+        if (response.status !== 200) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const user = response.data?.data?.user || response.data?.graphql?.user;
+        if (!user) {
+          throw new Error('response did not include user data');
+        }
+
+        const edges = user.edge_owner_to_timeline_media?.edges || [];
+        return edges
+          .slice(0, limit)
+          .map((edge: any) => InstagramScraperService.parseWebEdge(edge.node))
+          .filter((item: ScrapedMedia | null): item is ScrapedMedia => Boolean(item));
+      } catch (err: any) {
+        lastError = err;
+        logger.warn(`[Web] Instagram ${attempt.label} failed for @${cleanUser}: ${err.message}`);
+      }
+    }
+
+    throw lastError || new Error('Instagram public web profile request failed');
   }
 
   public static async scrapeProfile(username: string, limit = 24): Promise<ScrapedMedia[]> {
@@ -94,12 +147,44 @@ export class InstagramScraperService {
     };
   }
 
+  private static parseWebEdge(node: any): ScrapedMedia | null {
+    const shortcode = node.shortcode || '';
+    const id = String(node.id || shortcode || '').trim();
+    if (!id) return null;
+
+    const permalink = shortcode ? `https://www.instagram.com/p/${shortcode}/` : '';
+    const thumbnailUrl = node.thumbnail_src || node.display_url || '';
+
+    return {
+      id,
+      media_type: InstagramScraperService.normalizeMediaType(node.media_type, node),
+      media_url: node.video_url || node.display_url || thumbnailUrl,
+      caption: node.edge_media_to_caption?.edges?.[0]?.node?.text || '',
+      timestamp: InstagramScraperService.toIsoDate(node.taken_at_timestamp),
+      thumbnail_url: thumbnailUrl,
+      shortcode,
+      permalink,
+      provider: 'web',
+    };
+  }
+
+  private static webHeaders(username: string): Record<string, string> {
+    return {
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': `https://www.instagram.com/${username}/`,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      'X-IG-App-ID': InstagramScraperService.WEB_APP_ID,
+      'X-Requested-With': 'XMLHttpRequest',
+    };
+  }
+
   private static normalizeMediaType(rawType: string | undefined, item: any): ScrapedMedia['media_type'] {
-    const value = String(rawType || item.type || item.productType || '').toLowerCase();
-    if (value.includes('carousel') || value.includes('sidecar') || item.childPosts?.length > 0) {
+    const value = String(rawType || item.type || item.productType || item.__typename || '').toLowerCase();
+    if (value.includes('carousel') || value.includes('sidecar') || item.childPosts?.length > 0 || item.edge_sidecar_to_children) {
       return 'CAROUSEL_ALBUM';
     }
-    if (value.includes('video') || value.includes('clips') || item.videoUrl) {
+    if (value.includes('video') || value.includes('clips') || item.videoUrl || item.is_video) {
       return 'VIDEO';
     }
     return 'IMAGE';

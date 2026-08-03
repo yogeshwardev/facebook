@@ -53,15 +53,23 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
           .map((item: any) => InstagramScraperService.normalizeMetaMedia(item))
           .filter((item: any) => item?.media_type === 'VIDEO' && item.media_url);
       } catch (err: any) {
-        if (InstagramScraperService.isConfigured()) {
-          logger.info(`Official API failed for @${cleanUser}, using Apify import...`);
+        logger.info(`Official API failed for @${cleanUser}, trying public web import...`);
+        try {
+          const mediaItems = await InstagramScraperService.scrapePublicWebProfile(cleanUser, 24);
+          videos = mediaItems.filter((item) => item.media_type === 'VIDEO' && item.media_url);
+        } catch (webErr: any) {
+          logger.info(`Public web import failed for @${cleanUser}: ${webErr.message}`);
+        }
+
+        if (videos.length === 0 && InstagramScraperService.isConfigured()) {
+          logger.info(`Trying Apify import for @${cleanUser}...`);
           try {
             const mediaItems = await InstagramScraperService.scrapeProfile(cleanUser, 24);
             videos = mediaItems.filter((item) => item.media_type === 'VIDEO' && item.media_url);
           } catch (scraperErr: any) {
             logger.error(`Apify import failed for @${cleanUser}: ${scraperErr.message}`);
           }
-        } else {
+        } else if (videos.length === 0) {
           logger.info(`Official API failed for @${cleanUser}, and APIFY_TOKEN is not configured.`);
         }
       }
