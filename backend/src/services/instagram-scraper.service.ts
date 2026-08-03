@@ -104,46 +104,63 @@ export class InstagramScraperService {
 
   public static async scrapeRenderedProfile(username: string, limit = 24): Promise<ScrapedMedia[]> {
     const cleanUser = InstagramScraperService.cleanUsername(username);
-    const context = await BrowserManager.getInstance().createContext({ blockAssets: false });
-    const page = await context.newPage();
+    const maxRetries = 3;
 
-    try {
-      logger.info(`[Browser] Rendering Instagram profile for @${cleanUser}`);
-      await page.goto(`https://www.instagram.com/${cleanUser}/`, {
-        waitUntil: 'networkidle',
-        timeout: 45000,
-      });
-      await page.waitForTimeout(3000);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const context = await BrowserManager.getInstance().createContext({ blockAssets: false });
+      const page = await context.newPage();
 
-      const renderedItems = await page.evaluate((maxItems) => {
-        const html = document.documentElement.innerHTML;
-        const paths = Array.from(
-          new Set((html.match(/\/(?:p|reel|tv)\/[A-Za-z0-9_-]+/g) || []))
-        ).slice(0, maxItems);
-
-        const postImages = Array.from(document.querySelectorAll('img'))
-          .map((img) => ({
-            src: img.src,
-            alt: img.alt || '',
-          }))
-          .filter((img) => /Photo by|Video by/i.test(img.alt));
-
-        return paths.map((path, index) => {
-          const image = postImages[index] || postImages.find((img) => html.indexOf(img.src) > -1);
-          return {
-            path,
-            imageSrc: image?.src || '',
-            alt: image?.alt || '',
-          };
+      try {
+        logger.info(`[Browser] Rendering Instagram profile for @${cleanUser} (Attempt ${attempt}/${maxRetries})`);
+        await page.goto(`https://www.instagram.com/${cleanUser}/`, {
+          waitUntil: 'networkidle',
+          timeout: 45000,
         });
-      }, limit);
 
-      return renderedItems
-        .map((item: any) => InstagramScraperService.parseRenderedItem(item))
-        .filter((item: ScrapedMedia | null): item is ScrapedMedia => Boolean(item));
-    } finally {
-      await context.close();
+        // Wait for the grid to load using locators
+        await page.waitForTimeout(3000);
+        
+        const isGridLoaded = await page.locator('article a').count();
+        if (isGridLoaded === 0 && attempt < maxRetries) {
+          throw new Error('Profile grid not found or Instagram blocked the request.');
+        }
+
+        // Use Playwright locators only to extract the media items
+        const rawItems = await page.locator('article a').evaluateAll((anchors, maxItems) => {
+          return anchors.slice(0, maxItems).map((anchor: any) => {
+            const href = anchor.getAttribute('href') || '';
+            const img = anchor.querySelector('img');
+            return {
+              path: href,
+              imageSrc: img ? img.getAttribute('src') : '',
+              alt: img ? img.getAttribute('alt') : ''
+            };
+          });
+        }, limit);
+
+        const parsedItems = rawItems
+          .filter((item: any) => item.path && (item.path.includes('/p/') || item.path.includes('/reel/') || item.path.includes('/tv/')))
+          .map((item: any) => InstagramScraperService.parseRenderedItem(item))
+          .filter((item: ScrapedMedia | null): item is ScrapedMedia => Boolean(item));
+
+        if (parsedItems.length > 0 || attempt === maxRetries) {
+          return parsedItems;
+        }
+
+      } catch (browserErr: any) {
+        logger.warn(`[Browser] Attempt ${attempt} failed for @${cleanUser}: ${browserErr.message}`);
+        if (attempt === maxRetries) throw browserErr;
+        
+        // Exponential backoff: 2s, 4s, 8s
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        logger.info(`[Browser] Waiting ${backoffMs}ms before retrying...`);
+        await new Promise(res => setTimeout(res, backoffMs));
+      } finally {
+        await context.close();
+      }
     }
+    
+    return [];
   }
 
   public static cleanUsername(username: string): string {
