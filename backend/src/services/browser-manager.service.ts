@@ -1,7 +1,11 @@
-import { chromium, Browser, BrowserContext, Route } from 'playwright';
+import { Browser, BrowserContext, Route } from 'playwright';
+import { chromium } from 'playwright-extra';
+import stealthPlugin from 'puppeteer-extra-plugin-stealth';
 import path from 'path';
 import fs from 'fs';
 import { logger } from '../utils/logger';
+
+chromium.use(stealthPlugin());
 
 export class BrowserManager {
   private static instance: BrowserManager;
@@ -21,7 +25,7 @@ export class BrowserManager {
 
   public async getBrowser(): Promise<Browser> {
     if (!this.browser || !this.browser.isConnected()) {
-      logger.info('Initializing Playwright Chromium Browser Instance...');
+      logger.info('Initializing Playwright Chromium Stealth Browser Instance...');
       this.browser = await chromium.launch({
         headless: true,
         args: [
