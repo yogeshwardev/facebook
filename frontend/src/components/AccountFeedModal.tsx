@@ -115,7 +115,7 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
       );
     }
 
-    if (media.media_type === 'VIDEO') {
+    if (media.media_type === 'VIDEO' && media.provider !== 'browser') {
       return (
         <video
           src={url}
@@ -222,7 +222,7 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
                       </a>
                     )}
 
-                    {media.media_type === 'VIDEO' && (
+                    {media.media_type === 'VIDEO' && media.provider !== 'browser' && (
                       <button
                         className="btn btn-primary"
                         style={{ width: '100%', backgroundColor: media.isSynced ? '#4ade80' : undefined }}
@@ -235,6 +235,11 @@ export default function AccountFeedModal({ accountId, targetUsername, onClose }:
                             ? 'Already Reposted'
                             : 'Repost to My Page'}
                       </button>
+                    )}
+                    {media.media_type === 'VIDEO' && media.provider === 'browser' && (
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        Preview only. Open on Instagram or use Apify to fetch the video file.
+                      </div>
                     )}
                   </div>
                 </div>

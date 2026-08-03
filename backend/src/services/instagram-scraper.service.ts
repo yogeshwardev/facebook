@@ -1,8 +1,9 @@
 import { ApifyClient } from 'apify-client';
 import axios from 'axios';
 import { logger } from '../utils/logger';
+import { BrowserManager } from './browser-manager.service';
 
-export type InstagramProvider = 'meta' | 'web' | 'apify';
+export type InstagramProvider = 'meta' | 'web' | 'browser' | 'apify';
 
 export interface ScrapedMedia {
   id: string;
@@ -101,6 +102,50 @@ export class InstagramScraperService {
       .filter((item): item is ScrapedMedia => Boolean(item));
   }
 
+  public static async scrapeRenderedProfile(username: string, limit = 24): Promise<ScrapedMedia[]> {
+    const cleanUser = InstagramScraperService.cleanUsername(username);
+    const context = await BrowserManager.getInstance().createContext({ blockAssets: false });
+    const page = await context.newPage();
+
+    try {
+      logger.info(`[Browser] Rendering Instagram profile for @${cleanUser}`);
+      await page.goto(`https://www.instagram.com/${cleanUser}/`, {
+        waitUntil: 'networkidle',
+        timeout: 45000,
+      });
+      await page.waitForTimeout(3000);
+
+      const renderedItems = await page.evaluate((maxItems) => {
+        const html = document.documentElement.innerHTML;
+        const paths = Array.from(
+          new Set((html.match(/\/(?:p|reel|tv)\/[A-Za-z0-9_-]+/g) || []))
+        ).slice(0, maxItems);
+
+        const postImages = Array.from(document.querySelectorAll('img'))
+          .map((img) => ({
+            src: img.src,
+            alt: img.alt || '',
+          }))
+          .filter((img) => /Photo by|Video by/i.test(img.alt));
+
+        return paths.map((path, index) => {
+          const image = postImages[index] || postImages.find((img) => html.indexOf(img.src) > -1);
+          return {
+            path,
+            imageSrc: image?.src || '',
+            alt: image?.alt || '',
+          };
+        });
+      }, limit);
+
+      return renderedItems
+        .map((item: any) => InstagramScraperService.parseRenderedItem(item))
+        .filter((item: ScrapedMedia | null): item is ScrapedMedia => Boolean(item));
+    } finally {
+      await context.close();
+    }
+  }
+
   public static cleanUsername(username: string): string {
     return username.replace(/^@+/, '').trim();
   }
@@ -168,6 +213,28 @@ export class InstagramScraperService {
     };
   }
 
+  private static parseRenderedItem(item: { path: string; imageSrc: string; alt: string }): ScrapedMedia | null {
+    const match = item.path.match(/\/(p|reel|tv)\/([A-Za-z0-9_-]+)/);
+    if (!match) return null;
+
+    const [, kind, shortcode] = match;
+    const alt = item.alt || '';
+    const isVideo = kind === 'reel' || /^Video by/i.test(alt);
+    const timestamp = InstagramScraperService.dateFromAltText(alt);
+
+    return {
+      id: shortcode,
+      media_type: isVideo ? 'VIDEO' : 'IMAGE',
+      media_url: item.imageSrc,
+      caption: alt,
+      timestamp,
+      thumbnail_url: item.imageSrc,
+      shortcode,
+      permalink: `https://www.instagram.com/${kind}/${shortcode}/`,
+      provider: 'browser',
+    };
+  }
+
   private static webHeaders(username: string): Record<string, string> {
     return {
       'Accept': 'application/json, text/plain, */*',
@@ -199,6 +266,14 @@ export class InstagramScraperService {
   private static toIsoDate(value: string | number | undefined): string {
     if (!value) return new Date().toISOString();
     const date = new Date(typeof value === 'number' && value < 10_000_000_000 ? value * 1000 : value);
+    return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+  }
+
+  private static dateFromAltText(value: string): string {
+    const match = value.match(/\bon ([A-Z][a-z]+ \d{1,2}, \d{4})\b/);
+    if (!match) return new Date().toISOString();
+
+    const date = new Date(match[1]);
     return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
   }
 }

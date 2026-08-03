@@ -61,6 +61,16 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
           logger.info(`Public web import failed for @${cleanUser}: ${webErr.message}`);
         }
 
+        if (videos.length === 0) {
+          logger.info(`Trying rendered profile import for @${cleanUser}...`);
+          try {
+            const mediaItems = await InstagramScraperService.scrapeRenderedProfile(cleanUser, 24);
+            videos = mediaItems.filter((item) => item.media_type === 'VIDEO' && item.media_url && item.provider !== 'browser');
+          } catch (browserErr: any) {
+            logger.info(`Rendered profile import failed for @${cleanUser}: ${browserErr.message}`);
+          }
+        }
+
         if (videos.length === 0 && InstagramScraperService.isConfigured()) {
           logger.info(`Trying Apify import for @${cleanUser}...`);
           try {

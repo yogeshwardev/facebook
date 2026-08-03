@@ -175,7 +175,19 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       }
     }
 
-    // Strategy 3: If direct methods returned nothing, use configured Apify actor for public profiles.
+    // Strategy 3: Render the public profile and parse visible post links/thumbnails.
+    if (mediaItems.length === 0) {
+      sourcesTried.push('Instagram Rendered Profile');
+      logger.info(`[Feed] Falling back to rendered profile scrape for @${cleanUser}`);
+      try {
+        mediaItems = await InstagramScraperService.scrapeRenderedProfile(cleanUser, limit);
+        logger.info(`[Feed] Rendered profile returned ${mediaItems.length} items for @${cleanUser}`);
+      } catch (browserErr: any) {
+        logger.warn(`[Feed] Rendered profile failed for @${cleanUser}: ${browserErr.message}`);
+      }
+    }
+
+    // Strategy 4: If direct methods returned nothing, use configured Apify actor for public profiles.
     if (mediaItems.length === 0 && InstagramScraperService.isConfigured()) {
       sourcesTried.push('Apify Instagram Scraper');
       logger.info(`[Feed] Falling back to Apify scraper for @${cleanUser}`);
@@ -212,7 +224,7 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
 
     res.json({
       success: true,
-      message: feed.length === 0 ? `Could not fetch public posts for @${cleanUser}. Instagram may be blocking the public web request from this server; configure APIFY_TOKEN for the managed scraper path.` : undefined,
+      message: feed.length === 0 ? `Could not fetch public posts for @${cleanUser}. Instagram may be blocking this server; configure APIFY_TOKEN for the managed scraper path.` : undefined,
       data: { feed, sourcesTried }
     });
   } catch (err: any) {

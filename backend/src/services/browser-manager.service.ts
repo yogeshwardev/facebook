@@ -37,7 +37,7 @@ export class BrowserManager {
     return this.browser;
   }
 
-  public async createContext(): Promise<BrowserContext> {
+  public async createContext(options: { blockAssets?: boolean } = {}): Promise<BrowserContext> {
     const browser = await this.getBrowser();
     const hasStorage = fs.existsSync(this.storageStatePath);
 
@@ -67,14 +67,16 @@ export class BrowserManager {
       }]);
     }
 
-    // Abort image and media binary downloads to save memory & bandwidth
-    await context.route('**/*', (route: Route) => {
-      const resourceType = route.request().resourceType();
-      if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
-        return route.abort();
-      }
-      return route.continue();
-    });
+    if (options.blockAssets !== false) {
+      // Abort image and media binary downloads to save memory & bandwidth.
+      await context.route('**/*', (route: Route) => {
+        const resourceType = route.request().resourceType();
+        if (['image', 'media', 'font', 'stylesheet'].includes(resourceType)) {
+          return route.abort();
+        }
+        return route.continue();
+      });
+    }
 
     return context;
   }
