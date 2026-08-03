@@ -44,20 +44,32 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
       try {
         const res = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
           params: {
-            fields: `business_discovery.username(${cleanUser}){media{id,media_type,media_url,caption,timestamp}}`,
+            fields: `business_discovery.username(${cleanUser}){media.limit(24){id,media_type,media_url,caption,timestamp,thumbnail_url,permalink}}`,
             access_token: decryptedToken
           }
         });
         const mediaList = res.data?.business_discovery?.media?.data || [];
-        videos = mediaList;
+        videos = mediaList
+          .map((item: any) => InstagramScraperService.normalizeMetaMedia(item))
+          .filter((item: any) => item?.media_type === 'VIDEO' && item.media_url);
       } catch (err: any) {
-        logger.info(`Official API failed for @${cleanUser}, using custom scraper...`);
-        try {
-          videos = await InstagramScraperService.scrapeProfile(cleanUser);
-        } catch (scraperErr: any) {
-          logger.error(`Scraper failed for @${cleanUser}: ${scraperErr.message}`);
+        if (InstagramScraperService.isConfigured()) {
+          logger.info(`Official API failed for @${cleanUser}, using Apify import...`);
+          try {
+            const mediaItems = await InstagramScraperService.scrapeProfile(cleanUser, 24);
+            videos = mediaItems.filter((item) => item.media_type === 'VIDEO' && item.media_url);
+          } catch (scraperErr: any) {
+            logger.error(`Apify import failed for @${cleanUser}: ${scraperErr.message}`);
+          }
+        } else {
+          logger.info(`Official API failed for @${cleanUser}, and APIFY_TOKEN is not configured.`);
         }
       }
+
+      await prisma.monitoredAccount.update({
+        where: { id: account.id },
+        data: { lastCheckedAt: new Date() }
+      });
 
       if (videos.length === 0) continue;
 
@@ -127,12 +139,6 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
       });
 
       logger.info(`Successfully synced and scheduled new reel for @${account.targetUsername}`);
-
-      // Update last checked
-      await prisma.monitoredAccount.update({
-        where: { id: account.id },
-        data: { lastCheckedAt: new Date() }
-      });
 
     } catch (err: any) {
       logger.error(`Failed to sync for monitored account ${account.id}: ${err.message}`);

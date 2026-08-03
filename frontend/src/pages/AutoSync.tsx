@@ -88,11 +88,11 @@ export default function AutoSync() {
         <div>
           <h1 className="page-title">Auto-Sync Watchlist</h1>
           <p style={{ color: 'var(--text-secondary)', marginTop: '0.5rem' }}>
-            Automatically download and repost reels from monitored Business/Creator accounts.
+            Load recent public posts, reels, photos, and carousels from monitored Instagram accounts.
           </p>
         </div>
         <button className="btn btn-primary" onClick={handleSyncNow}>
-          🔄 Force Sync Now
+          Force Sync Now
         </button>
       </div>
 
@@ -157,7 +157,7 @@ export default function AutoSync() {
                     onClick={() => setSelectedAccount({ id: acc.id, username: acc.targetUsername })}
                     style={{ padding: '0.5rem 1rem' }}
                   >
-                    View Reels
+                    View Feed
                   </button>
                   <button 
                     className="btn btn-secondary"

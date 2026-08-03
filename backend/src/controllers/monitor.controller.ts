@@ -135,52 +135,58 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
     }
 
     const igAccount = account.user.instagramAccounts[0];
-    let videos: any[] = [];
+    let mediaItems: any[] = [];
     const cleanUser = account.targetUsername.replace(/^@+/, '');
+    const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 100);
+    const sourcesTried: string[] = [];
 
     // Strategy 1: Try Meta Graph API business_discovery (if user has connected IG account)
     if (igAccount) {
       const decryptedToken = decrypt(igAccount.accessToken);
       try {
+        sourcesTried.push('Meta Business Discovery');
         logger.info(`[Feed] Trying Meta Graph API for @${cleanUser} via connected account ${igAccount.instagramId}`);
         const igRes = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
           params: {
-            fields: `business_discovery.username(${cleanUser}){media{id,media_type,media_url,caption,timestamp,thumbnail_url,permalink}}`,
+            fields: `business_discovery.username(${cleanUser}){media.limit(${limit}){id,media_type,media_url,caption,timestamp,thumbnail_url,permalink}}`,
             access_token: decryptedToken
           }
         });
         const mediaList = igRes.data?.business_discovery?.media?.data || [];
         logger.info(`[Feed] Meta Graph API returned ${mediaList.length} items for @${cleanUser}`);
-        videos = mediaList;
+        mediaItems = mediaList
+          .map((item: any) => InstagramScraperService.normalizeMetaMedia(item))
+          .filter(Boolean);
       } catch (err: any) {
         const errMsg = err.response?.data?.error?.message || err.message;
         logger.warn(`[Feed] Meta Graph API failed for @${cleanUser}: ${errMsg}`);
       }
     }
 
-    // Strategy 2: If Graph API returned nothing, use got-scraping based scraper
-    if (videos.length === 0) {
-      logger.info(`[Feed] Falling back to got-scraping scraper for @${cleanUser}`);
+    // Strategy 2: If Graph API returned nothing, use configured Apify actor for public profiles.
+    if (mediaItems.length === 0 && InstagramScraperService.isConfigured()) {
+      sourcesTried.push('Apify Instagram Scraper');
+      logger.info(`[Feed] Falling back to Apify scraper for @${cleanUser}`);
       try {
-        videos = await InstagramScraperService.scrapeProfile(cleanUser);
-        logger.info(`[Feed] Scraper returned ${videos.length} items for @${cleanUser}`);
+        mediaItems = await InstagramScraperService.scrapeProfile(cleanUser, limit);
+        logger.info(`[Feed] Scraper returned ${mediaItems.length} items for @${cleanUser}`);
       } catch (scraperErr: any) {
         logger.error(`[Feed] Scraper also failed for @${cleanUser}: ${scraperErr.message}`);
       }
     }
 
     // Attach sync status
-    const videoIds = videos.map((v: any) => v.id).filter(Boolean);
+    const videoIds = mediaItems.map((v: any) => v.id).filter(Boolean);
     let syncedIds = new Set<string>();
     if (videoIds.length > 0) {
       const syncedMedia = await prisma.media.findMany({
-        where: { sourceMediaId: { in: videoIds } },
+        where: { userId, sourceMediaId: { in: videoIds } },
         select: { sourceMediaId: true }
       });
       syncedIds = new Set(syncedMedia.map(m => m.sourceMediaId).filter((id): id is string => id !== null));
     }
 
-    const feed = videos.map((v: any) => ({
+    const feed = mediaItems.map((v: any) => ({
       id: v.id || v.shortcode || `item_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       media_type: v.media_type || 'IMAGE',
       media_url: v.media_url || v.thumbnail_url || '',
@@ -188,13 +194,14 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
       timestamp: v.timestamp || new Date().toISOString(),
       thumbnail_url: v.thumbnail_url || v.media_url || '',
       permalink: v.permalink || '',
+      provider: v.provider || 'meta',
       isSynced: syncedIds.has(v.id)
     }));
 
     res.json({
       success: true,
-      message: feed.length === 0 ? `Could not fetch posts for @${cleanUser}. The account may be private or Instagram may be blocking requests from this server.` : undefined,
-      data: { feed }
+      message: feed.length === 0 ? `Could not fetch public posts for @${cleanUser}. Connect an eligible Meta Business/Creator account or configure APIFY_TOKEN for public profile imports.` : undefined,
+      data: { feed, sourcesTried }
     });
   } catch (err: any) {
     logger.error(`[Feed] Unhandled error: ${err.message}`);
