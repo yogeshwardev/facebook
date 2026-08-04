@@ -11,7 +11,10 @@ const envSchema = z.object({
   REDIS_URL: z.string(),
   FACEBOOK_APP_ID: z.string().default('test_id'),
   FACEBOOK_APP_SECRET: z.string().default('test_secret'),
-  FACEBOOK_REDIRECT_URI: z.string().default('http://localhost:3000/api/v1/accounts/oauth/callback')
+  FACEBOOK_REDIRECT_URI: z.string().default('http://localhost:3000/api/v1/accounts/oauth/callback'),
+  // Optional: Instagram session cookie for authenticated scraping
+  // Get from browser DevTools > Application > Cookies > sessionid
+  INSTAGRAM_SESSION_ID: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

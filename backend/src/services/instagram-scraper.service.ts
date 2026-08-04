@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { logger } from '../utils/logger';
+import { env } from '../config/env';
 
 // ─────────────────────────────────────────────
 // Types
@@ -104,6 +105,9 @@ const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
  * Bootstrap a session by hitting the Instagram homepage and extracting
  * the csrftoken cookie. This makes subsequent API calls look more legitimate
  * since they carry a real session cookie.
+ *
+ * If INSTAGRAM_SESSION_ID is set in env, it is appended to the cookies,
+ * which authenticates the request and bypasses IP-based blocking.
  */
 async function getSession(): Promise<Session> {
   if (session && Date.now() < session.expiresAt) return session;
@@ -130,27 +134,52 @@ async function getSession(): Promise<Session> {
     let csrfToken = '';
 
     for (const c of setCookieHeaders) {
-      // Extract just name=value part (before first ;)
       const part = c.split(';')[0].trim();
       cookieParts.push(part);
       const csrfMatch = c.match(/csrftoken=([^;]+)/);
       if (csrfMatch) csrfToken = csrfMatch[1];
     }
 
-    // Also try to find csrftoken in the page HTML
     if (!csrfToken) {
       const html: string = res.data || '';
       const match = html.match(/"csrf_token"\s*:\s*"([^"]+)"/);
       if (match) csrfToken = match[1];
     }
 
-    const cookies = cookieParts.join('; ');
-    session = { csrfToken, cookies, expiresAt: Date.now() + SESSION_TTL_MS };
-    logger.info(`[Scraper] Session bootstrapped, csrfToken: ${csrfToken ? 'obtained' : 'not found'}, cookies: ${cookieParts.length} parts`);
+    // Inject real Instagram sessionid from environment if available
+    const sessionId = env.INSTAGRAM_SESSION_ID;
+    if (sessionId) {
+      // Decode URL-encoded value if needed (browsers encode : as %3A)
+      const decoded = decodeURIComponent(sessionId);
+      // Remove any existing sessionid from cookies to avoid duplicates
+      const filtered = cookieParts.filter(p => !p.startsWith('sessionid='));
+      filtered.push(`sessionid=${decoded}`);
+      const cookies = filtered.join('; ');
+      session = { csrfToken, cookies, expiresAt: Date.now() + SESSION_TTL_MS };
+      logger.info(`[Scraper] Session bootstrapped with real sessionid. csrfToken: ${csrfToken ? 'yes' : 'no'}`);
+    } else {
+      const cookies = cookieParts.join('; ');
+      session = { csrfToken, cookies, expiresAt: Date.now() + SESSION_TTL_MS };
+      logger.info(`[Scraper] Session bootstrapped (no sessionid). csrfToken: ${csrfToken ? 'yes' : 'no'}, cookies: ${cookieParts.length}`);
+    }
+
     return session;
   } catch (err: any) {
     logger.warn(`[Scraper] Session bootstrap failed: ${err.message}`);
-    // Return empty session so strategies can still try without cookies
+
+    // Fall back to just the sessionid if we have it
+    const sessionId = env.INSTAGRAM_SESSION_ID;
+    if (sessionId) {
+      const decoded = decodeURIComponent(sessionId);
+      session = {
+        csrfToken: '',
+        cookies: `sessionid=${decoded}`,
+        expiresAt: Date.now() + SESSION_TTL_MS,
+      };
+      logger.info(`[Scraper] Using sessionid-only fallback session`);
+      return session;
+    }
+
     return { csrfToken: '', cookies: '', expiresAt: Date.now() + 30_000 };
   }
 }
