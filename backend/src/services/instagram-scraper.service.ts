@@ -88,6 +88,74 @@ function setCached(username: string, data: ScrapedPost[]): void {
 }
 
 // ─────────────────────────────────────────────
+// Session / CSRF Bootstrap
+// ─────────────────────────────────────────────
+
+interface Session {
+  csrfToken: string;
+  cookies: string;
+  expiresAt: number;
+}
+
+let session: Session | null = null;
+const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Bootstrap a session by hitting the Instagram homepage and extracting
+ * the csrftoken cookie. This makes subsequent API calls look more legitimate
+ * since they carry a real session cookie.
+ */
+async function getSession(): Promise<Session> {
+  if (session && Date.now() < session.expiresAt) return session;
+
+  try {
+    const ua = randomUA();
+    const res = await axios.get('https://www.instagram.com/', {
+      timeout: 15_000,
+      headers: {
+        'User-Agent': ua,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'max-age=0',
+        'Upgrade-Insecure-Requests': '1',
+      },
+    });
+
+    const setCookieHeaders: string[] = Array.isArray(res.headers['set-cookie'])
+      ? res.headers['set-cookie']
+      : (res.headers['set-cookie'] ? [res.headers['set-cookie']] : []);
+
+    const cookieParts: string[] = [];
+    let csrfToken = '';
+
+    for (const c of setCookieHeaders) {
+      // Extract just name=value part (before first ;)
+      const part = c.split(';')[0].trim();
+      cookieParts.push(part);
+      const csrfMatch = c.match(/csrftoken=([^;]+)/);
+      if (csrfMatch) csrfToken = csrfMatch[1];
+    }
+
+    // Also try to find csrftoken in the page HTML
+    if (!csrfToken) {
+      const html: string = res.data || '';
+      const match = html.match(/"csrf_token"\s*:\s*"([^"]+)"/);
+      if (match) csrfToken = match[1];
+    }
+
+    const cookies = cookieParts.join('; ');
+    session = { csrfToken, cookies, expiresAt: Date.now() + SESSION_TTL_MS };
+    logger.info(`[Scraper] Session bootstrapped, csrfToken: ${csrfToken ? 'obtained' : 'not found'}, cookies: ${cookieParts.length} parts`);
+    return session;
+  } catch (err: any) {
+    logger.warn(`[Scraper] Session bootstrap failed: ${err.message}`);
+    // Return empty session so strategies can still try without cookies
+    return { csrfToken: '', cookies: '', expiresAt: Date.now() + 30_000 };
+  }
+}
+
+// ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
@@ -220,9 +288,11 @@ function deepSearch(json: any, posts: ScrapedPost[], limit: number, depth = 0): 
 
 /**
  * Strategy 1a: i.instagram.com/api/v1/users/web_profile_info (mobile-style host)
+ * Uses a bootstrapped CSRF cookie for better acceptance.
  */
 async function strategyWebProfileInfoMobile(username: string, limit: number): Promise<ScrapedPost[]> {
   const ua = randomUA();
+  const sess = await getSession();
   const res = await axios.get(`https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`, {
     timeout: 18_000,
     headers: {
@@ -234,6 +304,8 @@ async function strategyWebProfileInfoMobile(username: string, limit: number): Pr
       'X-ASBD-ID': IG_ASBD_ID,
       'X-IG-WWW-Claim': '0',
       'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRFToken': sess.csrfToken,
+      'Cookie': sess.cookies,
       'Referer': `https://www.instagram.com/${username}/`,
       'Origin': 'https://www.instagram.com',
     },
@@ -251,9 +323,11 @@ async function strategyWebProfileInfoMobile(username: string, limit: number): Pr
 
 /**
  * Strategy 1b: www.instagram.com/api/v1/users/web_profile_info (web host)
+ * Uses a bootstrapped CSRF cookie for better acceptance.
  */
 async function strategyWebProfileInfoWeb(username: string, limit: number): Promise<ScrapedPost[]> {
   const ua = randomUA();
+  const sess = await getSession();
   const res = await axios.get(`https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`, {
     timeout: 18_000,
     headers: {
@@ -265,6 +339,8 @@ async function strategyWebProfileInfoWeb(username: string, limit: number): Promi
       'X-ASBD-ID': IG_ASBD_ID,
       'X-IG-WWW-Claim': '0',
       'X-Requested-With': 'XMLHttpRequest',
+      'X-CSRFToken': sess.csrfToken,
+      'Cookie': sess.cookies,
       'Referer': `https://www.instagram.com/${username}/`,
     },
   });
