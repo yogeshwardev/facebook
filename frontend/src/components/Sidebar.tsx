@@ -9,7 +9,6 @@ export default function Sidebar() {
 
   const links = [
     { name: 'Dashboard', path: '/dashboard' },
-    { name: 'My Page', path: '/my-page' },
     { name: 'Connected Accounts', path: '/accounts' },
     { name: 'Media Library', path: '/media' },
     { name: 'Upload Reel', path: '/upload' },

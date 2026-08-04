@@ -135,100 +135,53 @@ export const getAccountFeed = async (req: AuthRequest, res: Response, next: Next
     }
 
     const igAccount = account.user.instagramAccounts[0];
-    let mediaItems: any[] = [];
-    const cleanUser = account.targetUsername.replace(/^@+/, '');
-    const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 100);
-    const sourcesTried: string[] = [];
-
-    // Strategy 1: Try Meta Graph API business_discovery (if user has connected IG account)
-    if (igAccount) {
-      const decryptedToken = decrypt(igAccount.accessToken);
-      try {
-        sourcesTried.push('Meta Business Discovery');
-        logger.info(`[Feed] Trying Meta Graph API for @${cleanUser} via connected account ${igAccount.instagramId}`);
-        const igRes = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
-          params: {
-            fields: `business_discovery.username(${cleanUser}){media.limit(${limit}){id,media_type,media_url,caption,timestamp,thumbnail_url,permalink}}`,
-            access_token: decryptedToken
-          }
-        });
-        const mediaList = igRes.data?.business_discovery?.media?.data || [];
-        logger.info(`[Feed] Meta Graph API returned ${mediaList.length} items for @${cleanUser}`);
-        mediaItems = mediaList
-          .map((item: any) => InstagramScraperService.normalizeMetaMedia(item))
-          .filter(Boolean);
-      } catch (err: any) {
-        const errMsg = err.response?.data?.error?.message || err.message;
-        logger.warn(`[Feed] Meta Graph API failed for @${cleanUser}: ${errMsg}`);
-      }
+    if (!igAccount) {
+      return res.status(400).json({ success: false, message: 'No active Instagram account found to query from' });
     }
 
-    // Strategy 2: Try Instagram's public web profile JSON.
-    if (mediaItems.length === 0) {
-      sourcesTried.push('Instagram Public Web');
-      logger.info(`[Feed] Falling back to public web profile JSON for @${cleanUser}`);
-      try {
-        mediaItems = await InstagramScraperService.scrapePublicWebProfile(cleanUser, limit);
-        logger.info(`[Feed] Public web profile returned ${mediaItems.length} items for @${cleanUser}`);
-      } catch (webErr: any) {
-        logger.warn(`[Feed] Public web profile failed for @${cleanUser}: ${webErr.message}`);
-      }
-    }
+    const decryptedToken = decrypt(igAccount.accessToken);
 
-    // Strategy 3: Render the public profile and parse visible post links/thumbnails.
-    if (mediaItems.length === 0) {
-      sourcesTried.push('Instagram Rendered Profile');
-      logger.info(`[Feed] Falling back to rendered profile scrape for @${cleanUser}`);
+    let videos: any[] = [];
+    
+    try {
+      const igRes = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
+        params: {
+          fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
+          access_token: decryptedToken
+        }
+      });
+      const mediaList = igRes.data?.business_discovery?.media?.data || [];
+      videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
+    } catch (err: any) {
+      logger.info(`Official API failed for @${account.targetUsername}, using custom scraper...`);
+      const cleanUser = account.targetUsername.replace(/^@+/, '');
       try {
-        mediaItems = await InstagramScraperService.scrapeRenderedProfile(cleanUser, limit);
-        logger.info(`[Feed] Rendered profile returned ${mediaItems.length} items for @${cleanUser}`);
-      } catch (browserErr: any) {
-        logger.warn(`[Feed] Rendered profile failed for @${cleanUser}: ${browserErr.message}`);
-      }
-    }
-
-    // Strategy 4: If direct methods returned nothing, use configured Apify actor for public profiles.
-    if (mediaItems.length === 0 && InstagramScraperService.isConfigured()) {
-      sourcesTried.push('Apify Instagram Scraper');
-      logger.info(`[Feed] Falling back to Apify scraper for @${cleanUser}`);
-      try {
-        mediaItems = await InstagramScraperService.scrapeProfile(cleanUser, limit);
-        logger.info(`[Feed] Scraper returned ${mediaItems.length} items for @${cleanUser}`);
+        videos = await InstagramScraperService.scrapeProfile(cleanUser);
       } catch (scraperErr: any) {
-        logger.error(`[Feed] Scraper also failed for @${cleanUser}: ${scraperErr.message}`);
+        logger.error(`Scraper failed for @${cleanUser}: ${scraperErr.message}`);
+        return res.json({
+          success: true,
+          data: { feed: [] },
+          message: 'Could not fetch reels. The account may be private or temporarily unavailable.'
+        });
       }
     }
 
     // Attach sync status
-    const videoIds = mediaItems.map((v: any) => v.id).filter(Boolean);
-    let syncedIds = new Set<string>();
-    if (videoIds.length > 0) {
-      const syncedMedia = await prisma.media.findMany({
-        where: { userId, sourceMediaId: { in: videoIds } },
-        select: { sourceMediaId: true }
-      });
-      syncedIds = new Set(syncedMedia.map(m => m.sourceMediaId).filter((id): id is string => id !== null));
-    }
+    const syncedMedia = await prisma.media.findMany({
+      where: { sourceMediaId: { in: videos.map((v: any) => v.id) } },
+      select: { sourceMediaId: true }
+    });
+    
+    const syncedIds = new Set(syncedMedia.map(m => m.sourceMediaId));
 
-    const feed = mediaItems.map((v: any) => ({
-      id: v.id || v.shortcode || `item_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      media_type: v.media_type || 'IMAGE',
-      media_url: v.media_url || v.thumbnail_url || '',
-      caption: v.caption || '',
-      timestamp: v.timestamp || new Date().toISOString(),
-      thumbnail_url: v.thumbnail_url || v.media_url || '',
-      permalink: v.permalink || '',
-      provider: v.provider || 'meta',
+    const feed = videos.map((v: any) => ({
+      ...v,
       isSynced: syncedIds.has(v.id)
     }));
 
-    res.json({
-      success: true,
-      message: feed.length === 0 ? `Could not fetch public posts for @${cleanUser}. Instagram may be blocking this server; configure APIFY_TOKEN for the managed scraper path.` : undefined,
-      data: { feed, sourcesTried }
-    });
+    res.json({ success: true, data: { feed } });
   } catch (err: any) {
-    logger.error(`[Feed] Unhandled error: ${err.message}`);
     if (err.isAxiosError && err.response?.data?.error?.message) {
       return res.status(400).json({ success: false, message: `Instagram API Error: ${err.response.data.error.message}` });
     }

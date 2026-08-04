@@ -45,8 +45,8 @@ export default function Accounts() {
       if (res.data.success) {
         window.location.href = res.data.data.url;
       }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to generate secure login URL. Is the backend running?');
+    } catch (err) {
+      setError('Failed to generate secure login URL. Is the backend running?');
       console.error(err);
     }
   };

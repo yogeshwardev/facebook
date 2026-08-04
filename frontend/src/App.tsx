@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import MyPage from './pages/MyPage';
 import Accounts from './pages/Accounts';
 import MediaLibrary from './pages/MediaLibrary';
 import UploadReel from './pages/UploadReel';
@@ -22,7 +21,6 @@ function App() {
           
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/my-page" element={<MyPage />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/media" element={<MediaLibrary />} />
             <Route path="/upload" element={<UploadReel />} />

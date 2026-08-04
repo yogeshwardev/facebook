@@ -36,58 +36,28 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
       
       const decryptedToken = decrypt(igAccount.accessToken);
 
-      const cleanUser = account.targetUsername.replace(/^@+/, '');
-      logger.info(`Checking target @${cleanUser} for user ${account.userId}`);
+      logger.info(`Checking target @${account.targetUsername} for user ${account.userId}`);
 
       let videos: any[] = [];
       
       try {
         const res = await axios.get(`https://graph.facebook.com/v19.0/${igAccount.instagramId}`, {
           params: {
-            fields: `business_discovery.username(${cleanUser}){media.limit(24){id,media_type,media_url,caption,timestamp,thumbnail_url,permalink}}`,
+            fields: `business_discovery.username(${account.targetUsername}){media{id,media_type,media_url,caption,timestamp}}`,
             access_token: decryptedToken
           }
         });
         const mediaList = res.data?.business_discovery?.media?.data || [];
-        videos = mediaList
-          .map((item: any) => InstagramScraperService.normalizeMetaMedia(item))
-          .filter((item: any) => item?.media_type === 'VIDEO' && item.media_url);
+        videos = mediaList.filter((m: any) => m.media_type === 'VIDEO');
       } catch (err: any) {
-        logger.info(`Official API failed for @${cleanUser}, trying public web import...`);
+        logger.info(`Official API failed for @${account.targetUsername}, using custom scraper...`);
+        const cleanUser = account.targetUsername.replace(/^@+/, '');
         try {
-          const mediaItems = await InstagramScraperService.scrapePublicWebProfile(cleanUser, 24);
-          videos = mediaItems.filter((item) => item.media_type === 'VIDEO' && item.media_url);
-        } catch (webErr: any) {
-          logger.info(`Public web import failed for @${cleanUser}: ${webErr.message}`);
-        }
-
-        if (videos.length === 0) {
-          logger.info(`Trying rendered profile import for @${cleanUser}...`);
-          try {
-            const mediaItems = await InstagramScraperService.scrapeRenderedProfile(cleanUser, 24);
-            videos = mediaItems.filter((item) => item.media_type === 'VIDEO' && item.media_url && item.provider !== 'browser');
-          } catch (browserErr: any) {
-            logger.info(`Rendered profile import failed for @${cleanUser}: ${browserErr.message}`);
-          }
-        }
-
-        if (videos.length === 0 && InstagramScraperService.isConfigured()) {
-          logger.info(`Trying Apify import for @${cleanUser}...`);
-          try {
-            const mediaItems = await InstagramScraperService.scrapeProfile(cleanUser, 24);
-            videos = mediaItems.filter((item) => item.media_type === 'VIDEO' && item.media_url);
-          } catch (scraperErr: any) {
-            logger.error(`Apify import failed for @${cleanUser}: ${scraperErr.message}`);
-          }
-        } else if (videos.length === 0) {
-          logger.info(`Official API failed for @${cleanUser}, and APIFY_TOKEN is not configured.`);
+          videos = await InstagramScraperService.scrapeProfile(cleanUser);
+        } catch (scraperErr: any) {
+          logger.error(`Scraper failed for @${cleanUser}: ${scraperErr.message}`);
         }
       }
-
-      await prisma.monitoredAccount.update({
-        where: { id: account.id },
-        data: { lastCheckedAt: new Date() }
-      });
 
       if (videos.length === 0) continue;
 
@@ -157,6 +127,12 @@ export const syncWorker = new Worker('sync-queue', async (job) => {
       });
 
       logger.info(`Successfully synced and scheduled new reel for @${account.targetUsername}`);
+
+      // Update last checked
+      await prisma.monitoredAccount.update({
+        where: { id: account.id },
+        data: { lastCheckedAt: new Date() }
+      });
 
     } catch (err: any) {
       logger.error(`Failed to sync for monitored account ${account.id}: ${err.message}`);

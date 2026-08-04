@@ -2,9 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { MetaService } from '../services/meta.service';
 import { PrismaClient } from '@prisma/client';
-import axios from 'axios';
-import { encrypt, decrypt } from '../utils/crypto';
-import { InstagramScraperService } from '../services/instagram-scraper.service';
+import { encrypt } from '../utils/crypto';
 import { logger } from '../utils/logger';
 
 const prisma = new PrismaClient();
@@ -119,95 +117,3 @@ export const getConnectedAccounts = async (req: AuthRequest, res: Response, next
     next(err);
   }
 };
-
-export const getMyPageMedia = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const userId = req.user!.userId;
-
-    // 1. Fetch connected Instagram accounts
-    const accounts = await prisma.instagramAccount.findMany({
-      where: { userId, status: 'ACTIVE' }
-    });
-
-    // 2. Fetch local posts (uploaded / reposted / scheduled via app)
-    const localPosts = await prisma.post.findMany({
-      where: { userId },
-      include: { media: true },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    const postsList: any[] = localPosts.map(p => ({
-      id: p.id,
-      source: 'APP',
-      media_type: p.media.mimeType.startsWith('video') ? 'VIDEO' : 'IMAGE',
-      media_url: p.media.fileUrl,
-      caption: p.caption,
-      status: p.status,
-      scheduledTime: p.scheduledTime,
-      timestamp: p.createdAt.toISOString()
-    }));
-
-    // 3. For each active connected Instagram account, fetch live posts & reels
-    let liveMedia: any[] = [];
-
-    for (const acc of accounts) {
-      try {
-        const decryptedToken = decrypt(acc.accessToken);
-        const url = `https://graph.facebook.com/v19.0/${acc.instagramId}/media`;
-        const igRes = await axios.get(url, {
-          params: {
-            fields: 'id,caption,media_type,media_url,permalink,timestamp,thumbnail_url',
-            access_token: decryptedToken
-          }
-        });
-
-        if (igRes.data?.data) {
-          const items = igRes.data.data.map((m: any) => ({
-            id: m.id,
-            source: 'INSTAGRAM',
-            accountUsername: acc.username,
-            media_type: m.media_type,
-            media_url: m.media_url || m.thumbnail_url,
-            caption: m.caption || '',
-            permalink: m.permalink,
-            timestamp: m.timestamp,
-            status: 'PUBLISHED'
-          }));
-          liveMedia.push(...items);
-        }
-      } catch (err: any) {
-        logger.warn(`Could not fetch Graph API media for @${acc.username}, trying custom scraper fallback`);
-        try {
-          const scraped = await InstagramScraperService.scrapeProfile(acc.username, 20);
-          const items = scraped.map((s: any) => ({
-            id: s.id,
-            source: 'INSTAGRAM',
-            accountUsername: acc.username,
-            media_type: s.media_type,
-            media_url: s.media_url,
-            caption: s.caption || '',
-            timestamp: s.timestamp,
-            status: 'PUBLISHED'
-          }));
-          liveMedia.push(...items);
-        } catch {
-          // Ignore fallback errors
-        }
-      }
-    }
-
-    // Merge and deduplicate by media_url / id
-    const allMedia = [...postsList, ...liveMedia];
-
-    res.json({
-      success: true,
-      data: {
-        accounts: accounts.map(a => ({ id: a.id, username: a.username, profilePicture: a.profilePicture })),
-        media: allMedia
-      }
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-

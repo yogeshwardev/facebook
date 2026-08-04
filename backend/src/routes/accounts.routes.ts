@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getOAuthUrl, oauthCallback, getConnectedAccounts, getMyPageMedia } from '../controllers/accounts.controller';
+import { getOAuthUrl, oauthCallback, getConnectedAccounts } from '../controllers/accounts.controller';
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
@@ -12,8 +12,5 @@ router.get('/oauth/callback', oauthCallback);
 
 // Get Connected Accounts (Protected)
 router.get('/', authenticate, getConnectedAccounts);
-
-// Get My Page Media (All posts & reels)
-router.get('/my-page', authenticate, getMyPageMedia);
 
 export default router;
